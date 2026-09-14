@@ -382,19 +382,30 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   const fetchCatalogFromBackend = useCallback(async (qrToken: string): Promise<{ tableNumber: string; tableId: number } | null> => {
     try {
       const resolve = await api.resolveTable(qrToken)
-      const biz = resolve.business
+      const biz = resolve.business as typeof resolve.business & { features?: Record<string, boolean> }
+      // Flag taxAndFees OFF (default) = paksa pajak & service NOL di state FE
+      // agar cart selalu hitung total = subtotal murni, walau DB lama masih true.
+      const taxOn = biz.features ? biz.features.taxAndFees === true : false
       setBusiness((prev) => ({
         ...prev,
         id: String(biz.id),
         name: biz.name,
         tagline: biz.tagline ?? prev.tagline,
         logoUrl: biz.logoUrl ?? prev.logoUrl,
-        taxEnabled: biz.taxEnabled,
+        taxEnabled: taxOn ? biz.taxEnabled : false,
         taxLabel: biz.taxLabel as Business['taxLabel'],
-        taxRate: Number(biz.taxRate),
+        taxRate: taxOn ? Number(biz.taxRate) : 0,
         taxBearer: biz.taxBearer as Business['taxBearer'],
         serviceChargeEnabled: biz.serviceChargeEnabled,
         serviceChargeRate: Number(biz.serviceChargeRate),
+        serviceChargeMode: (biz.serviceChargeMode as Business['serviceChargeMode']) ?? 'percent',
+        serviceChargeFlat: Number(biz.serviceChargeFlat ?? 0),
+        platformFeeEnabled: biz.platformFeeEnabled ?? false,
+        platformFeeMode: (biz.platformFeeMode as Business['platformFeeMode']) ?? 'percent',
+        platformFeePercent: Number(biz.platformFeePercent ?? 0),
+        platformFeeFlat: Number(biz.platformFeeFlat ?? 0),
+        platformFeeBearer: (biz.platformFeeBearer as Business['platformFeeBearer']) ?? 'customer',
+        features: biz.features ?? { taxAndFees: false },
         enabledPaymentMethods: (biz.enabledPaymentMethods as PaymentMethod[]) ?? prev.enabledPaymentMethods,
         paymentSettings: (biz.paymentSettings as Record<string, PaymentSettings>) ?? prev.paymentSettings,
         theme: normalizeTheme(biz.theme),
@@ -428,7 +439,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
 
   function mapBeOrderToFe(be: Record<string, unknown>): Order {
     const raw = be as unknown as {
-      id: number; orderNumber: string; clientOrderId: string; tableId?: number | null; customerName?: string; source: string; status: string; paymentMethod: string; paymentStatus: string; subtotal: string | number; serviceCharge: string | number; tax: string | number; taxLabel?: string; taxBearer?: string; total: string | number; createdAt: string; items: { id: number; productId: number; productName: string; price: string | number; quantity: number; options?: Record<string, unknown>; optionsLabel?: string; subtotal: string | number }[]; payments?: { gatewayData?: Record<string, unknown> }[]; table?: { tableNumber?: string } | null
+      id: number; orderNumber: string; clientOrderId: string; tableId?: number | null; customerName?: string; source: string; status: string; paymentMethod: string; paymentStatus: string; subtotal: string | number; serviceCharge: string | number; tax: string | number; taxLabel?: string; taxBearer?: string; platformFee?: string | number; platformFeeBearer?: string; mdrFee?: string | number; total: string | number; createdAt: string; items: { id: number; productId: number; productName: string; price: string | number; quantity: number; options?: Record<string, unknown>; optionsLabel?: string; subtotal: string | number }[]; payments?: { gatewayData?: Record<string, unknown> }[]; table?: { tableNumber?: string } | null
     }
     const fe: Order = {
       id: api.toFrontendId('o', raw.id),
@@ -446,6 +457,9 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       tax: Number(raw.tax),
       taxLabel: (raw.taxLabel as Business['taxLabel']) ?? 'PB1',
       taxBearer: (raw.taxBearer as Business['taxBearer']) ?? 'customer',
+      platformFee: Number(raw.platformFee ?? 0),
+      platformFeeBearer: (raw.platformFeeBearer as Business['platformFeeBearer']) ?? 'customer',
+      mdrFee: Number(raw.mdrFee ?? 0),
       total: Number(raw.total),
       createdAt: raw.createdAt,
       syncStatus: 'synced',
@@ -562,11 +576,28 @@ export function CafeProvider({ children }: { children: ReactNode }) {
 
   const placeOrder = useCallback<CafeStore['placeOrder']>(({ items, customerName, tableId, tableNumber, paymentMethod, source, offline }) => {
     const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0)
-    const serviceCharge = business.serviceChargeEnabled ? Math.round(subtotal * (business.serviceChargeRate / 100)) : 0
+    // Flag taxAndFees OFF = pajak fallback lokal pun harus NOL (fail-closed bila features hilang).
+    // Service charge SENGAJA independen: tidak ikut flag, owner bebas on/off.
+    const taxOn = business.features ? business.features.taxAndFees === true : false
+    const svcOn = business.serviceChargeEnabled
+    const tEnabled = taxOn && business.taxEnabled
+    const serviceCharge = svcOn
+      ? (business.serviceChargeMode === 'flat'
+        ? Math.max(0, Math.round(business.serviceChargeFlat))
+        : Math.round(subtotal * (Math.min(100, Math.max(0, business.serviceChargeRate)) / 100)))
+      : 0
     const taxBase = subtotal + serviceCharge
-    const rawTax = business.taxEnabled ? Math.round(taxBase * (business.taxRate / 100)) : 0
+    const rawTax = tEnabled ? Math.round(taxBase * (business.taxRate / 100)) : 0
     const tax = rawTax
-    const total = business.taxEnabled && business.taxBearer === 'cafe' ? subtotal + serviceCharge : subtotal + serviceCharge + tax
+    // Platform fee: khusus self_order non-tunai (cerminan backend lib/platform-fee.ts).
+    const feeApplicable = source === 'self_order' && (paymentMethod === 'qris' || paymentMethod === 'bank_transfer')
+    const platformFee = feeApplicable && business.platformFeeEnabled
+      ? (business.platformFeeMode === 'flat'
+        ? Math.max(0, Math.round(business.platformFeeFlat))
+        : Math.round(subtotal * (Math.min(100, Math.max(0, business.platformFeePercent)) / 100)))
+      : 0
+    const total = (tEnabled && business.taxBearer === 'cafe' ? subtotal + serviceCharge : subtotal + serviceCharge + tax)
+      + (business.platformFeeBearer === 'cafe' ? 0 : platformFee)
     // Gunakan functional update agar tidak stale terhadap orders.length
     let created: Order | null = null
     setOrders((prev) => {
@@ -587,6 +618,9 @@ export function CafeProvider({ children }: { children: ReactNode }) {
         tax,
         taxLabel: business.taxLabel,
         taxBearer: business.taxBearer,
+        platformFee,
+        platformFeeBearer: business.platformFeeBearer,
+        mdrFee: 0,
         total,
         createdAt: new Date().toISOString(),
         syncStatus: offline || connection === 'offline' ? 'pending' : 'synced',
@@ -605,7 +639,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       return [order, ...prev]
     })
     return created!
-  }, [connection, business.taxEnabled, business.taxRate, business.taxLabel, business.taxBearer, business.serviceChargeEnabled, business.serviceChargeRate])
+  }, [connection, business.features, business.taxEnabled, business.taxRate, business.taxLabel, business.taxBearer, business.serviceChargeEnabled, business.serviceChargeRate, business.serviceChargeMode, business.serviceChargeFlat, business.platformFeeEnabled, business.platformFeeMode, business.platformFeePercent, business.platformFeeFlat, business.platformFeeBearer])
 
   const updateOrderStatus = useCallback((orderId: string, status: OrderStatus) => {
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)))
@@ -928,8 +962,11 @@ export function CafeProvider({ children }: { children: ReactNode }) {
 
   // Muat profil bisnis dari BE (dipakai halaman kasir yang tidak punya qrToken).
   // Decimal dari Prisma datang sebagai string — konversi ke number agar aman.
+  // Flag taxAndFees OFF (default) = paksa pajak & service NOL agar total = subtotal murni.
   const refreshBusinessFromBackend = useCallback(async (): Promise<void> => {
     const b = await api.getBusiness()
+    const feats = (b.features as Record<string, boolean> | undefined) ?? undefined
+    const taxOn = feats ? feats.taxAndFees === true : false
     setBusiness((prev) => ({
       ...prev,
       id: String(b.id ?? prev.id),
@@ -939,12 +976,20 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       phone: typeof b.phone === 'string' ? b.phone : prev.phone,
       email: typeof b.email === 'string' ? b.email : prev.email,
       logoUrl: typeof b.logoUrl === 'string' ? b.logoUrl : prev.logoUrl,
-      taxEnabled: typeof b.taxEnabled === 'boolean' ? b.taxEnabled : prev.taxEnabled,
+      taxEnabled: taxOn ? (typeof b.taxEnabled === 'boolean' ? b.taxEnabled : prev.taxEnabled) : false,
       taxLabel: (b.taxLabel as Business['taxLabel']) ?? prev.taxLabel,
-      taxRate: b.taxRate !== undefined ? Number(b.taxRate) : prev.taxRate,
+      taxRate: taxOn ? (b.taxRate !== undefined ? Number(b.taxRate) : prev.taxRate) : 0,
       taxBearer: (b.taxBearer as Business['taxBearer']) ?? prev.taxBearer,
-      serviceChargeEnabled: typeof b.serviceChargeEnabled === 'boolean' ? b.serviceChargeEnabled : prev.serviceChargeEnabled,
-      serviceChargeRate: b.serviceChargeRate !== undefined ? Number(b.serviceChargeRate) : prev.serviceChargeRate,
+      serviceChargeEnabled: (typeof b.serviceChargeEnabled === 'boolean' ? b.serviceChargeEnabled : prev.serviceChargeEnabled),
+      serviceChargeRate: (b.serviceChargeRate !== undefined ? Number(b.serviceChargeRate) : prev.serviceChargeRate),
+      serviceChargeMode: (b.serviceChargeMode as Business['serviceChargeMode']) ?? prev.serviceChargeMode,
+      serviceChargeFlat: (b.serviceChargeFlat !== undefined ? Number(b.serviceChargeFlat) : prev.serviceChargeFlat),
+      platformFeeEnabled: typeof b.platformFeeEnabled === 'boolean' ? b.platformFeeEnabled : prev.platformFeeEnabled,
+      platformFeeMode: (b.platformFeeMode as Business['platformFeeMode']) ?? prev.platformFeeMode,
+      platformFeePercent: b.platformFeePercent !== undefined ? Number(b.platformFeePercent) : prev.platformFeePercent,
+      platformFeeFlat: b.platformFeeFlat !== undefined ? Number(b.platformFeeFlat) : prev.platformFeeFlat,
+      platformFeeBearer: (b.platformFeeBearer as Business['platformFeeBearer']) ?? prev.platformFeeBearer,
+      features: feats ?? { taxAndFees: false },
       soundEnabled: typeof b.soundEnabled === 'boolean' ? b.soundEnabled : prev.soundEnabled,
       openingCash: b.openingCash !== undefined && b.openingCash !== null ? Number(b.openingCash) : prev.openingCash,
       closingCash: b.closingCash !== undefined ? (b.closingCash === null ? null : Number(b.closingCash)) : prev.closingCash,
@@ -1010,9 +1055,13 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       ...(typeof saved.taxBearer === 'string' ? { taxBearer: saved.taxBearer as Business['taxBearer'] } : {}),
       ...(typeof saved.serviceChargeEnabled === 'boolean' ? { serviceChargeEnabled: saved.serviceChargeEnabled } : {}),
       ...(saved.serviceChargeRate !== undefined ? { serviceChargeRate: Number(saved.serviceChargeRate) } : {}),
+      ...(typeof saved.serviceChargeMode === 'string' ? { serviceChargeMode: saved.serviceChargeMode as Business['serviceChargeMode'] } : {}),
+      ...(saved.serviceChargeFlat !== undefined ? { serviceChargeFlat: Number(saved.serviceChargeFlat) } : {}),
+      ...(typeof saved.platformFeeBearer === 'string' ? { platformFeeBearer: saved.platformFeeBearer as Business['platformFeeBearer'] } : {}),
       ...(Array.isArray(saved.enabledPaymentMethods) ? { enabledPaymentMethods: saved.enabledPaymentMethods as PaymentMethod[] } : {}),
       ...(saved.paymentSettings && typeof saved.paymentSettings === 'object' ? { paymentSettings: saved.paymentSettings as Record<string, PaymentSettings> } : {}),
       ...((saved.theme && typeof saved.theme === 'object') || saved.theme === null ? { theme: normalizeTheme(saved.theme) } : {}),
+      ...(saved.features && typeof saved.features === 'object' ? { features: saved.features as Business['features'] } : {}),
     }))
   }, [])
 

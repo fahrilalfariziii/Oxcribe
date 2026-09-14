@@ -6,6 +6,8 @@ export function Headbar() {
   const [scrolled, setScrolled] = useState(false)
   const [productOpen, setProductOpen] = useState(false)
   const [isPinned, setIsPinned] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [mobileProductOpen, setMobileProductOpen] = useState(false)
   
   const closeTimer = useRef<number | null>(null)
   const headbarRef = useRef<HTMLElement | null>(null)
@@ -26,7 +28,19 @@ export function Headbar() {
   useEffect(() => {
     setProductOpen(false)
     setIsPinned(false)
+    setMobileOpen(false)
+    setMobileProductOpen(false)
   }, [location.pathname])
+
+  // Kunci scroll body saat drawer mobile terbuka.
+  useEffect(() => {
+    if (!mobileOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [mobileOpen])
 
   // Click Outside & Escape Key Handler
   useEffect(() => {
@@ -41,6 +55,7 @@ export function Headbar() {
       if (e.key === 'Escape') {
         setProductOpen(false)
         setIsPinned(false)
+        setMobileOpen(false)
       }
     }
 
@@ -80,6 +95,7 @@ export function Headbar() {
   const anchor = (hash: string) => (onPos ? hash : `/pos-kafe${hash}`)
 
   return (
+    <>
     <header
       ref={headbarRef}
       className={`sticky top-0 z-50 transition-all duration-300 ${
@@ -88,10 +104,10 @@ export function Headbar() {
           : 'bg-surface'
       }`}
     >
-      <div className="relative mx-auto flex h-20 max-w-[90rem] items-center justify-between px-4 sm:px-6">
+      <div className="relative mx-auto flex h-16 max-w-[90rem] items-center justify-between px-4 sm:h-20 sm:px-6 lg:px-8">
         {/* LOGO UNTUK HEADBAR: Diperbesar dari h-9 menjadi h-12 */}
-        <Link to="/" aria-label="Ordria — beranda" className="transition-transform active:scale-95">
-          <img src={`${import.meta.env.BASE_URL}Ordria-Icon.svg`} alt="Ordria" className="h-35 w-auto" />
+        <Link to="/" aria-label="Oxcribe — beranda" className="transition-transform active:scale-95">
+          <img src={`${import.meta.env.BASE_URL}oxcribe.svg`} alt="Oxcribe" className="h-9 w-38 sm:h-12" />
         </Link>
 
         <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-10 text-base text-on-surface-variant md:flex">
@@ -133,7 +149,7 @@ export function Headbar() {
           </a>
         </nav>
 
-        <div className="flex items-center gap-3 sm:gap-5">
+        <div className="flex items-center gap-2 sm:gap-5">
           <a
             href={`${WEB_APP_URL}/login`}
             className="hidden text-base text-on-surface-variant transition-colors duration-200 hover:text-on-surface sm:block"
@@ -142,15 +158,26 @@ export function Headbar() {
           </a>
           <Link
             to="/hubungi-sales"
-            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-6 py-3 text-base font-semibold text-on-primary shadow-md transition-all duration-200 hover:bg-primary-container hover:shadow-lg active:scale-95"
+            className="hidden items-center gap-1.5 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-on-primary shadow-md transition-all duration-200 hover:bg-primary-container hover:shadow-lg active:scale-95 min-[400px]:inline-flex sm:px-6 sm:py-3 sm:text-base"
           >
             Hubungi Sales
           </Link>
+          <button
+            type="button"
+            aria-label={mobileOpen ? 'Tutup menu' : 'Buka menu'}
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen((v) => !v)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-low active:scale-95 md:hidden"
+          >
+            <span className="material-symbols-outlined text-[26px]">
+              {mobileOpen ? 'close' : 'menu'}
+            </span>
+          </button>
         </div>
 
-        {/* Mega Menu Dropdown */}
+        {/* Mega Menu Dropdown — desktop saja */}
         <div
-          className={`absolute inset-x-0 top-full z-40 px-4 sm:px-6 transition-all duration-300 ease-out origin-top ${
+          className={`absolute inset-x-0 top-full z-40 hidden px-4 transition-all duration-300 ease-out origin-top sm:px-6 md:block ${
             productOpen
               ? 'pointer-events-auto opacity-100 translate-y-0 scale-y-100'
               : 'pointer-events-none opacity-0 -translate-y-2 scale-y-95'
@@ -235,5 +262,125 @@ export function Headbar() {
         </div>
       </div>
     </header>
+
+    {/* Backdrop drawer mobile */}
+    <div
+      aria-hidden={!mobileOpen}
+      onClick={() => setMobileOpen(false)}
+      className={`fixed inset-0 z-40 bg-black/40 transition-opacity duration-300 md:hidden ${
+        mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+      }`}
+    />
+
+    {/* Drawer mobile: Home, Product accordion, FAQ, Sign In, CTA */}
+    <aside
+      aria-label="Menu navigasi mobile"
+      className={`fixed inset-y-0 right-0 z-50 flex w-[84vw] max-w-sm flex-col bg-surface shadow-2xl transition-transform duration-300 ease-out md:hidden ${
+        mobileOpen ? 'translate-x-0' : 'translate-x-full'
+      }`}
+    >
+      <div className="flex h-16 items-center justify-between border-b border-outline-variant/30 px-4">
+        <span className="font-display text-lg font-bold text-on-surface">Menu</span>
+        <button
+          type="button"
+          aria-label="Tutup menu"
+          onClick={() => setMobileOpen(false)}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-on-surface hover:bg-surface-container-low active:scale-95"
+        >
+          <span className="material-symbols-outlined text-[26px]">close</span>
+        </button>
+      </div>
+      <nav className="flex-1 overflow-y-auto px-4 py-4">
+        <Link
+          to="/"
+          onClick={() => setMobileOpen(false)}
+          className="flex min-h-11 items-center rounded-xl px-3 py-3 text-base font-semibold text-on-surface hover:bg-surface-container-low"
+        >
+          Home
+        </Link>
+        <button
+          type="button"
+          aria-expanded={mobileProductOpen}
+          onClick={() => setMobileProductOpen((v) => !v)}
+          className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-3 text-left text-base font-semibold text-on-surface hover:bg-surface-container-low"
+        >
+          Product
+          <span
+            className="material-symbols-outlined text-[22px] transition-transform duration-300"
+            style={{ transform: mobileProductOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+          >
+            expand_more
+          </span>
+        </button>
+        <div
+          className={`grid transition-all duration-300 ease-out ${
+            mobileProductOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div className="flex flex-col gap-2 py-2 pl-2">
+              <Link
+                to="/pos-kafe"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-3 rounded-xl bg-surface-container-low p-3"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary">
+                  <span className="material-symbols-outlined text-[24px] text-on-primary">point_of_sale</span>
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-on-surface">
+                    POS Kafe {onPos ? '• Anda di sini' : ''}
+                  </span>
+                  <span className="block truncate text-xs text-on-surface-variant">
+                    Kasir, stok & QR Self-Order
+                  </span>
+                </span>
+              </Link>
+              <Link
+                to="/jasa-website"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-3 rounded-xl bg-surface-container-low p-3"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary-fixed">
+                  <span className="material-symbols-outlined text-[24px] text-on-secondary-fixed">language</span>
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-on-surface">
+                    Jasa Website {onJasa ? '• Anda di sini' : ''}
+                  </span>
+                  <span className="block truncate text-xs text-on-surface-variant">
+                    Landing page & web custom
+                  </span>
+                </span>
+              </Link>
+            </div>
+          </div>
+        </div>
+        <a
+          href={onHome ? '#faq' : onJasa ? '#faq-jasa' : anchor('#faq')}
+          onClick={() => setMobileOpen(false)}
+          className="flex min-h-11 items-center rounded-xl px-3 py-3 text-base font-semibold text-on-surface hover:bg-surface-container-low"
+        >
+          FAQ
+        </a>
+        <a
+          href={`${WEB_APP_URL}/login`}
+          className="flex min-h-11 items-center rounded-xl px-3 py-3 text-base text-on-surface-variant hover:bg-surface-container-low"
+        >
+          Sign In
+        </a>
+      </nav>
+      <div className="border-t border-outline-variant/30 p-4">
+        <Link
+          to="/hubungi-sales"
+          onClick={() => setMobileOpen(false)}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-6 py-3.5 text-base font-semibold text-on-primary shadow-md active:scale-[0.99]"
+        >
+          Hubungi Sales
+          <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+        </Link>
+      </div>
+    </aside>
+    </>
   )
 }

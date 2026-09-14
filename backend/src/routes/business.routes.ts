@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import { AppError } from "../lib/errors";
 import { asyncHandler } from "../middleware/error-handler";
 import { requireAuth, requireRole } from "../middleware/auth";
-import { FEATURES, getBusinessFeatures } from "../lib/feature-gate";
+import { FEATURES, getBusinessFeatures, isFeatureOn } from "../lib/feature-gate";
 import { encrypt, isEncrypted } from "../lib/encryption";
 import { emitBusinessCashUpdate, emitBusinessUpdated } from "../lib/realtime";
 
@@ -18,7 +18,14 @@ businessRouter.get(
     const business = await prisma.business.findUnique({ where: { id: req.auth!.businessId } });
     if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
     const { midtransServerKeyEnc: _enc, ...safe } = business as unknown as Record<string, unknown> & { midtransServerKeyEnc?: string };
-    res.json({ ...safe, hasMidtransCustomKey: Boolean(_enc), midtransServerKeyEnc: undefined });
+    // Flag fitur efektif (untuk FE sembunyikan menu, mis. taxAndFees).
+    // Gagal resolve (mis. suspended) -> tetap kembalikan profil tanpa features.
+    let features: Record<string, boolean> | undefined;
+    try {
+      const resolved = await getBusinessFeatures(req.auth!.businessId);
+      features = resolved.flags;
+    } catch {}
+    res.json({ ...safe, hasMidtransCustomKey: Boolean(_enc), midtransServerKeyEnc: undefined, ...(features ? { features } : {}) });
   })
 );
 
@@ -55,6 +62,12 @@ const updateBusinessSchema = z.object({
   taxBearer: z.enum(["customer", "cafe"]).optional(),
   serviceChargeEnabled: z.boolean().optional(),
   serviceChargeRate: z.number().min(0).max(100).optional(), // persen
+  // Service charge independen dari pajak & flag: mode percent (% subtotal) / flat (Rp per transaksi).
+  serviceChargeMode: z.enum(["percent", "flat"]).optional(),
+  serviceChargeFlat: z.coerce.number().min(0).optional(),
+  // Bearer platform fee boleh diubah owner (pilihan di halaman Pajak & Biaya),
+  // tetapi hanya saat flag taxAndFees ON. Nilai persen/flat/enabled HANYA via Platform Admin.
+  platformFeeBearer: z.enum(["customer", "cafe"]).optional(),
   soundEnabled: z.boolean().optional(),
   openingCash: z.number().min(0).optional(),
   qrTemplate: z.record(z.any()).nullable().optional(),
@@ -123,15 +136,51 @@ businessRouter.patch(
 
 // PUT /api/business — update profil/identitas/pajak/service charge (khusus owner).
 // Field `theme` di-gate flag themePreset (Starter tanpa tema -> 403 bila mengirim theme).
+// Field pajak (`taxEnabled/taxLabel/taxRate/taxBearer`) di-gate flag taxAndFees
+// (OFF -> 403 bila mengirim field tsb).
+// Field service charge (enabled/rate/mode/flat) SENGAJA tidak di-gate: independen dari
+// pajak & flag — owner bebas on/off kapan saja.
+const TAX_FEE_FIELDS = [
+  "taxEnabled",
+  "taxLabel",
+  "taxRate",
+  "taxBearer",
+] as const;
 businessRouter.put(
   "/",
   requireRole("owner"),
   asyncHandler(async (req, res, next) => {
     if ((req.body as { theme?: unknown })?.theme !== undefined) {
       const { flags } = await getBusinessFeatures(req.auth!.businessId);
-      if (flags[FEATURES.THEME_PRESET] !== true) {
+      // Tulis tema butuh preset ATAU custom (Starter keduanya false -> 403).
+      // Fail-open untuk key hilang (tenant lama pra-kanon tidak terkunci).
+      const canTheme = isFeatureOn(flags, FEATURES.THEME_PRESET) || isFeatureOn(flags, FEATURES.THEME_CUSTOM);
+      if (!canTheme) {
         throw AppError.forbidden(
-          "Fitur ini tidak termasuk paket kafe Anda (themePreset). Hubungi tim sales Ordria untuk upgrade."
+          "Fitur tema tidak termasuk paket kafe Anda. Hubungi tim sales Ordria untuk upgrade."
+        );
+      }
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (TAX_FEE_FIELDS.some((f) => body[f] !== undefined)) {
+      const { flags } = await getBusinessFeatures(req.auth!.businessId);
+      if (!isFeatureOn(flags, FEATURES.TAX_AND_FEES)) {
+        throw AppError.forbidden(
+          "Fitur Pajak & Biaya sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
+        );
+      }
+    }
+    // Bearer fee aplikasi keputusan owner — lolos bila flag pajak ON *atau* fee sedang menyala.
+    // (Halaman Pajak & Biaya ikut terbuka saat fee on, walau flag pajak mati.)
+    if (body.platformFeeBearer !== undefined) {
+      const { flags } = await getBusinessFeatures(req.auth!.businessId);
+      const biz = await prisma.business.findUnique({
+        where: { id: req.auth!.businessId },
+        select: { platformFeeEnabled: true },
+      });
+      if (!isFeatureOn(flags, FEATURES.TAX_AND_FEES) && !biz?.platformFeeEnabled) {
+        throw AppError.forbidden(
+          "Fitur Pajak & Biaya sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
         );
       }
     }
@@ -161,7 +210,11 @@ businessRouter.put(
     });
     // Jangan expose encrypted key ke FE
     const { midtransServerKeyEnc: _enc, ...safe } = updated as unknown as Record<string, unknown> & { midtransServerKeyEnc?: string };
+    let features: Record<string, boolean> | undefined;
+    try {
+      features = (await getBusinessFeatures(req.auth!.businessId)).flags;
+    } catch {}
     emitBusinessUpdated(req.auth!.businessId, { ...safe, hasMidtransCustomKey: Boolean(_enc) });
-    res.json({ ...safe, hasMidtransCustomKey: Boolean(_enc) });
+    res.json({ ...safe, hasMidtransCustomKey: Boolean(_enc), ...(features ? { features } : {}) });
   })
 );

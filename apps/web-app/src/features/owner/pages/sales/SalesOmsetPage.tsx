@@ -12,6 +12,8 @@ import {
 import { useCafe } from '../../../../mock/store'
 import { formatRupiah, formatTime } from '../../../../shared/lib/format'
 import { bucketizePaidOrders, filterPaidOrders } from '../../../../shared/lib/sales'
+import { isFeatureOn } from '../../../../shared/lib/features'
+import { estimateMdrPreview, netEstimate } from '../../../../shared/lib/fees'
 
 type OmsetView = 'omset' | 'sales_type'
 
@@ -22,10 +24,16 @@ function compactRp(v: number): string {
 }
 
 export function SalesOmsetPage() {
-  const { orders } = useCafe()
+  const { orders, business } = useCafe()
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [activeView, setActiveView] = useState<OmsetView>('omset')
+  // Kill-switch: Starter (analyticsFull OFF) = angka ringkas saja;
+  // salesType OFF = tab Sales Type disembunyikan; exportCsv OFF = tombol ekspor hilang.
+  const fullOn = isFeatureOn(business, 'analyticsFull')
+  const salesTypeOn = fullOn && isFeatureOn(business, 'salesType')
+  const exportOn = isFeatureOn(business, 'exportCsv')
+  const effectiveView: OmsetView = activeView === 'sales_type' && !salesTypeOn ? 'omset' : activeView
 
   const paidOrders = useMemo(() => filterPaidOrders(orders, selectedYear), [orders, selectedYear])
 
@@ -43,14 +51,20 @@ export function SalesOmsetPage() {
   const hasChartData = chartData.some((d) => d.total > 0)
 
   function exportSalesCSV() {
-    if (activeView === 'sales_type') {
-      const headers = ['Waktu', 'No Order', 'Sales Type', 'Items', 'Total Tagihan']
+    if (!exportOn) return
+    const feeCols = (o: (typeof paidOrders)[number]) => {
+      const mdr = (o.mdrFee ?? 0) > 0 ? o.mdrFee : estimateMdrPreview(o.total, o.paymentMethod).fee
+      return [o.platformFee ?? 0, mdr, netEstimate({ total: o.total, platformFee: o.platformFee ?? 0, mdrFee: mdr })]
+    }
+    if (effectiveView === 'sales_type') {
+      const headers = ['Waktu', 'No Order', 'Sales Type', 'Items', 'Total Tagihan', 'Biaya Layanan', 'MDR (est.)', 'Bersih (est.)']
       const rows = paidOrders.map((o) => [
         formatTime(o.createdAt),
         `#${o.orderNumber}`,
         o.source === 'self_order' ? 'Self Order' : 'Manual Order',
         `"${o.items.map((i) => `${i.quantity}x ${i.productName}`).join(', ')}"`,
         o.total,
+        ...feeCols(o),
       ])
       const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n')
       const link = document.createElement('a')
@@ -61,13 +75,14 @@ export function SalesOmsetPage() {
       document.body.removeChild(link)
       return
     }
-    const headers = ['Waktu', 'No Order', 'Items', 'Status Pembayaran', 'Total Tagihan']
+    const headers = ['Waktu', 'No Order', 'Items', 'Status Pembayaran', 'Total Tagihan', 'Biaya Layanan', 'MDR (est.)', 'Bersih (est.)']
     const rows = paidOrders.map((o) => [
       formatTime(o.createdAt),
       `#${o.orderNumber}`,
       `"${o.items.map((i) => `${i.quantity}x ${i.productName}`).join(', ')}"`,
       o.paymentStatus,
       o.total,
+      ...feeCols(o),
     ])
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n')
     const link = document.createElement('a')
@@ -113,22 +128,25 @@ export function SalesOmsetPage() {
             ))}
           </div>
 
+          {exportOn && (
           <button
             onClick={exportSalesCSV}
             className="flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-xs font-semibold text-white hover:bg-black/80 transition-colors"
           >
             <span className="material-symbols-outlined text-[18px]">download</span>
-            <span>Ekspor {activeView === 'sales_type' ? 'Sales Type' : 'Omset'} (CSV)</span>
+            <span>Ekspor {effectiveView === 'sales_type' ? 'Sales Type' : 'Omset'} (CSV)</span>
           </button>
+          )}
         </div>
       </div>
 
-      {/* Kategori bar: Omset | Sales Type */}
+      {/* Kategori bar: Omset | Sales Type (disembunyikan bila flag salesType OFF) */}
+      {salesTypeOn ? (
       <div className="flex gap-2 rounded-lg border border-[#c4c7c7] bg-cream p-1.5">
         <button
           onClick={() => setActiveView('omset')}
           className={`flex-1 rounded-md px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
-            activeView === 'omset' ? 'bg-black text-white shadow-xs' : 'bg-white text-stone hover:text-black border border-sand'
+            effectiveView === 'omset' ? 'bg-black text-white shadow-xs' : 'bg-white text-stone hover:text-black border border-sand'
           }`}
         >
           Omset
@@ -136,14 +154,15 @@ export function SalesOmsetPage() {
         <button
           onClick={() => setActiveView('sales_type')}
           className={`flex-1 rounded-md px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
-            activeView === 'sales_type' ? 'bg-black text-white shadow-xs' : 'bg-white text-stone hover:text-black border border-sand'
+            effectiveView === 'sales_type' ? 'bg-black text-white shadow-xs' : 'bg-white text-stone hover:text-black border border-sand'
           }`}
         >
           Sales Type
         </button>
       </div>
+      ) : null}
 
-      {activeView === 'omset' ? (
+      {effectiveView === 'omset' ? (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <article className="rounded-[12px] bg-cream p-5 border border-[#c4c7c7]">
@@ -165,7 +184,9 @@ export function SalesOmsetPage() {
               <h2 className="text-lg font-semibold text-black">Grafik Penjualan</h2>
               <span className="material-symbols-outlined text-stone">show_chart</span>
             </div>
-            {hasChartData ? (
+            {!fullOn ? (
+              <p className="text-sm text-stone">Grafik lengkap tidak termasuk paket kafe Anda — ringkasan angka di atas tetap tersedia. Hubungi tim sales Ordria untuk upgrade.</p>
+            ) : hasChartData ? (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>

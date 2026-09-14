@@ -13,16 +13,18 @@ import {
 } from 'recharts'
 import { useCafe } from '../../../../mock/store'
 import { formatRupiah } from '../../../../shared/lib/format'
+import { isFeatureOn } from '../../../../shared/lib/features'
 
 type PerformaTab = 'menu' | 'kategori' | 'varian'
 
 const DONUT_COLORS = ['#4a7c59', '#b8cda9', '#1c1917', '#d6c9a8', '#9a6b2f', '#78716c']
 
 export function SalesPerformancePage() {
-  const { orders, products, categories } = useCafe()
+  const { orders, products, categories, business } = useCafe()
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [activeTab, setActiveTab] = useState<PerformaTab>('menu')
+  const exportOn = isFeatureOn(business, 'exportCsv')
 
   const paidOrders = useMemo(() => {
     return orders.filter((o) => {
@@ -106,6 +108,7 @@ export function SalesPerformancePage() {
   const topVariants = useMemo(() => variantSalesMap.slice(0, 10), [variantSalesMap])
 
   function exportCSV() {
+    if (!exportOn) return
     let headers: string[] = []
     let rows: (string | number)[][] = []
     let filename = ''
@@ -167,6 +170,7 @@ export function SalesPerformancePage() {
             ))}
           </div>
 
+          {exportOn && (
           <button
             onClick={exportCSV}
             className="flex h-10 items-center gap-1.5 rounded-lg border border-clay bg-white px-4 text-xs font-semibold text-stone hover:border-black hover:text-black transition-colors"
@@ -174,6 +178,7 @@ export function SalesPerformancePage() {
             <span className="material-symbols-outlined text-[18px]">file_download</span>
             <span>Ekspor CSV</span>
           </button>
+          )}
         </div>
       </div>
 

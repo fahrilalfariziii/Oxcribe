@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../lib/errors";
 import { calculateOrderTotals } from "../lib/order-calc";
+import { calcPlatformFee, estimateMdrFee } from "../lib/platform-fee";
+import { FEATURES, getBusinessFeatures, isFeatureOn } from "../lib/feature-gate";
 import { nextOrderNumber } from "./order-number.service";
 import {
   emitNewOrder,
@@ -58,6 +60,16 @@ export async function createOrder(input: CreateOrderInput) {
 
   const business = await prisma.business.findUnique({ where: { id: input.businessId } });
   if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
+
+  // Flag Pajak & Biaya: OFF = order baru selalu subtotal murni (0 pajak + 0 service).
+  // Resolve via plans + overrides; fallback OFF bila resolve gagal (fail-closed).
+  // Memakai isFeatureOn (Context7: plans.featureFlags adalah Jsonirman — merge di getBusinessFeatures).
+  let taxAndFeesOn = false;
+  try {
+    taxAndFeesOn = isFeatureOn((await getBusinessFeatures(input.businessId)).flags, FEATURES.TAX_AND_FEES);
+  } catch {
+    taxAndFeesOn = false;
+  }
 
   const enabled = parseEnabledMethods(business);
   if (enabled && !enabled.includes(input.paymentMethod)) {
@@ -123,14 +135,34 @@ export async function createOrder(input: CreateOrderInput) {
     });
   }
 
+  // Platform fee: hanya self_order non-tunai, config per kafe dari Platform Admin.
+  // Cash & manual order (source pos) selalu 0.
+  const { platformFee, platformFeeBearer } = calcPlatformFee(subtotal, {
+    platformFeeEnabled: business.platformFeeEnabled,
+    platformFeeMode: business.platformFeeMode,
+    platformFeePercent: Number(business.platformFeePercent),
+    platformFeeFlat: Number(business.platformFeeFlat),
+    platformFeeBearer: business.platformFeeBearer,
+  }, { source: input.source, paymentMethod: input.paymentMethod });
+
   const totals = calculateOrderTotals(subtotal, {
-    taxEnabled: business.taxEnabled,
-    taxRate: Number(business.taxRate),
+    // Flag taxAndFees OFF (default) = paksa pajak NOL agar total = subtotal murni.
+    // Menang atas nilai DB (data lama yang masih true tetap diabaikan untuk order baru).
+    // Service charge SENGAJA tidak ikut flag: independen, owner bebas on/off kapan saja.
+    taxEnabled: taxAndFeesOn ? business.taxEnabled : false,
+    taxRate: taxAndFeesOn ? Number(business.taxRate) : 0,
     taxLabel: business.taxLabel,
     taxBearer: business.taxBearer,
     serviceChargeEnabled: business.serviceChargeEnabled,
     serviceChargeRate: Number(business.serviceChargeRate),
+    serviceChargeMode: business.serviceChargeMode,
+    serviceChargeFlat: Number(business.serviceChargeFlat),
+    platformFee,
+    platformFeeBearer,
   });
+
+  // Estimasi MDR dari gross yang di-charge (snapshot; label "estimasi" di UI).
+  const mdrFee = estimateMdrFee(totals.total, input.paymentMethod).fee;
 
   // Retry kalau order_number bentrok karena race condition antar request paralel.
   let lastError: unknown;
@@ -154,6 +186,9 @@ export async function createOrder(input: CreateOrderInput) {
           tax: totals.tax,
           taxLabel: totals.taxLabel,
           taxBearer: totals.taxBearer,
+          platformFee: totals.platformFee,
+          platformFeeBearer: totals.platformFeeBearer,
+          mdrFee,
           total: totals.total,
           syncStatus: "synced",
           items: { createMany: { data: itemsToCreate } },

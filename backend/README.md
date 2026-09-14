@@ -405,7 +405,8 @@ curl -s "http://localhost:4000/api/platform/audit-logs?limit=5" -H "Authorizatio
 | PATCH | `/api/platform/tenants/:id/plan` | admin | Upgrade/downgrade (data historis aman) |
 | PATCH | `/api/platform/tenants/:id/status` | admin | active/past_due/suspended/canceled |
 | POST | `/api/platform/tenants/:id/reset-owner-password` | superadmin | Reset darurat |
-| PATCH/DELETE | `/api/platform/tenants/:id/feature-overrides` | superadmin | Override per-key / reset ke paket |
+| PATCH/DELETE | `/api/platform/tenants/:id/feature-overrides` | admin | Override per-key / reset ke paket |
+| PATCH | `/api/platform/tenants/:id/platform-fee` | admin | Platform fee self-order per kafe (%/flat + bearer, audit `platform_fee_changed`) |
 | GET/PUT | `/api/platform/plans(/:code)` | admin/superadmin | Lihat semua / ubah paket |
 | GET/POST | `/api/platform/invoices` | admin/superadmin | List / buat manual |
 | PATCH | `/api/platform/invoices/:id/pay` | superadmin | Tandai lunas manual |
@@ -481,27 +482,3 @@ Database dev memakai Docker volume (`backend_servopay_db_data`). Berlaku:
 4. Ganti `JWT_SECRET` dengan string acak panjang yang benar-benar rahasia.
 5. Set `CORS_ORIGIN` ke domain frontend production.
 6. Ganti `MIDTRANS_IS_PRODUCTION=true` + ServerKey production + `MIDTRANS_NOTIFICATION_URL` domain publik.
-
-## 10. Deploy ke Vercel (full-Vercel, gratis tanpa kartu)
-
-Backend jalan sebagai Vercel Functions via `api/index.ts` (me-reuse `createApp()` dari
-`src/app.ts`); `src/index.ts` (long-running, untuk Hostinger/VPS/Docker) TIDAK diubah.
-Realtime SSE = HTTP biasa sehingga lolos batasan WebSocket serverless; stream diputus
-tiap ≤5 menit (limit Hobby) dan client reconnect otomatis + replay `Last-Event-ID`.
-
-1. Buat 4 project Vercel dari repo yang sama: 3 frontend (`apps/*/`, `vercel.json` SPA
-   fallback sudah ada) + 1 backend (**Root Directory `backend/`**).
-2. Backend memakai `backend/vercel.json` (semua path → `/api/index`, `maxDuration: 300)
-   dan `postinstall: prisma generate` (sudah di `package.json`).
-3. Buat database Neon (free, tanpa kartu) lalu dari lokal:
-   `DATABASE_URL="<neon-pooled>" npx prisma migrate deploy` + `npm run seed`.
-4. Buat Redis Upstash free (tanpa kartu) untuk fan-out SSE lintas instance; tanpa
-   `REDIS_URL` realtime hanya jalan bila request & stream satu instance.
-5. Env backend di Vercel: `DATABASE_URL` (Neon pooled), `JWT_SECRET`, `CORS_ORIGIN`
-   (3 URL frontend), `FRONTEND_URL`, `MIDTRANS_*` (sandbox dulu), `REDIS_URL`,
-   SMTP opsional.
-6. Env tiap frontend: `VITE_API_BASE_URL` (URL backend Vercel); landing tambah
-   `VITE_WEB_APP_URL` + `VITE_SALES_WHATSAPP`; web-app `VITE_PUBLIC_BASE_URL`
-   (wajib URL publik web-app agar QR tidak menunjuk localhost).
-7. Verifikasi: `/health` → login → order self-order muncul realtime di 2 tab →
-   potong stream dan pastikan tidak ada event hilang → checkout QRIS sandbox sampai paid.

@@ -281,6 +281,13 @@ platformRouter.get(
         onboardedAt: business.onboardedAt,
         createdAt: business.createdAt,
         featureOverrides: business.featureOverrides,
+        platformFee: {
+          enabled: business.platformFeeEnabled,
+          mode: business.platformFeeMode,
+          percent: business.platformFeePercent,
+          flat: business.platformFeeFlat,
+          bearer: business.platformFeeBearer,
+        },
       },
       plan: business.currentPlan,
       subscriptions: business.subscriptions,
@@ -401,10 +408,11 @@ const overridesSchema = z.object({
   overrides: z.record(z.string(), z.boolean().nullable()),
 });
 
-// PATCH /api/platform/tenants/:id/feature-overrides — pengecualian per-key (superadmin only)
+// PATCH /api/platform/tenants/:id/feature-overrides — pengecualian per-key (superadmin + support)
+// Keputusan: kedua role boleh toggle fitur (bukan hanya superadmin).
 platformRouter.patch(
   "/tenants/:id/feature-overrides",
-  requirePlatformRole("superadmin"),
+  requirePlatformRole("superadmin", "support"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const { overrides } = overridesSchema.parse(req.body);
@@ -424,10 +432,10 @@ platformRouter.patch(
   })
 );
 
-// DELETE /api/platform/tenants/:id/feature-overrides — hapus semua override (superadmin only)
+// DELETE /api/platform/tenants/:id/feature-overrides — hapus semua override (superadmin + support)
 platformRouter.delete(
   "/tenants/:id/feature-overrides",
-  requirePlatformRole("superadmin"),
+  requirePlatformRole("superadmin", "support"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const business = await prisma.business.findUnique({ where: { id } });
@@ -435,6 +443,47 @@ platformRouter.delete(
     await prisma.business.update({ where: { id }, data: { featureOverrides: {} } });
     await recordAudit(req.platformAdmin!.adminId, id, "feature_override_changed", business.featureOverrides, {});
     res.json({ status: "ok", featureOverrides: {} });
+  })
+);
+
+const platformFeeSchema = z.object({
+  // Config platform fee self-order non-tunai, per kafe (hasil kerja sama).
+  // Dua mode: percent (% dari subtotal) atau flat (rupiah per transaksi).
+  // Bearer adalah keputusan owner (di halaman Pajak & Biaya) — admin tidak mengubahnya.
+  platformFeeEnabled: z.boolean().optional(),
+  platformFeeMode: z.enum(["percent", "flat"]).optional(),
+  platformFeePercent: z.coerce.number().min(0).max(100).optional(),
+  platformFeeFlat: z.coerce.number().min(0).optional(),
+});
+
+// PATCH /api/platform/tenants/:id/platform-fee — atur platform fee kafe (superadmin + support).
+// Tiap kafe bisa beda (hasil kerja sama). Fee hanya berlaku self_order non-tunai.
+// Perubahan dicatat di audit log; order lama TIDAK berubah (snapshot saat dibuat).
+platformRouter.patch(
+  "/tenants/:id/platform-fee",
+  requirePlatformRole("superadmin", "support"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const data = platformFeeSchema.parse(req.body);
+    if (Object.keys(data).length === 0) throw AppError.badRequest("Tidak ada field platform fee yang diubah");
+    const business = await prisma.business.findUnique({ where: { id } });
+    if (!business) throw AppError.notFound("Tenant tidak ditemukan");
+
+    const before = {
+      platformFeeEnabled: business.platformFeeEnabled,
+      platformFeeMode: business.platformFeeMode,
+      platformFeePercent: business.platformFeePercent,
+      platformFeeFlat: business.platformFeeFlat,
+    };
+    const updated = await prisma.business.update({ where: { id }, data });
+    const after = {
+      platformFeeEnabled: updated.platformFeeEnabled,
+      platformFeeMode: updated.platformFeeMode,
+      platformFeePercent: updated.platformFeePercent,
+      platformFeeFlat: updated.platformFeeFlat,
+    };
+    await recordAudit(req.platformAdmin!.adminId, id, "platform_fee_changed", before, after);
+    res.json({ status: "ok", platformFee: after });
   })
 );
 
@@ -464,10 +513,10 @@ const updatePlanSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-// PUT /api/platform/plans/:code — ubah paket (superadmin only, langsung memengaruhi gating)
+// PUT /api/platform/plans/:code — ubah paket (superadmin + support, langsung memengaruhi gating)
 platformRouter.put(
   "/plans/:code",
-  requirePlatformRole("superadmin"),
+  requirePlatformRole("superadmin", "support"),
   asyncHandler(async (req, res) => {
     const data = updatePlanSchema.parse(req.body);
     const plan = await prisma.plan.findUnique({ where: { code: req.params.code } });

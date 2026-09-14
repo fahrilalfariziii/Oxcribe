@@ -27,8 +27,8 @@ export type Plan = {
 
 // Nilai sama persis dengan backend/src/lib/plans.ts — dipakai saat backend tak terjangkau.
 export const FALLBACK_PLANS: Plan[] = [
-  { code: 'starter', name: 'Starter', price: 99000, billingCycle: 'monthly', limits: { maxTables: 0, maxStaff: 3 } },
-  { code: 'pro', name: 'Pro', price: 249000, billingCycle: 'monthly', limits: { maxTables: 30, maxStaff: null } },
+  { code: 'starter', name: 'Starter', price: 149000, billingCycle: 'monthly', limits: { maxTables: 0, maxStaff: 3 } },
+  { code: 'pro', name: 'Pro', price: 349000, billingCycle: 'monthly', limits: { maxTables: 30, maxStaff: null } },
   { code: 'enterprise', name: 'Enterprise', price: 0, billingCycle: 'custom', limits: { maxTables: null, maxStaff: null } },
 ]
 
@@ -120,14 +120,14 @@ export const FALLBACK_HOME: HomeContent = {
   products: [
     {
       icon: 'point_of_sale',
-      title: 'Ordria POS — SaaS Kafe',
+      title: 'Oxcribe POS — SaaS Kafe',
       desc: 'Kasir, self-order QR meja, manajemen stok, dan analitik owner dalam satu aplikasi berlangganan.',
       ctaLabel: 'Lihat Paket POS',
       href: '/pos-kafe',
     },
     {
       icon: 'language',
-      title: 'Jasa Website Ordria',
+      title: 'Jasa Website Oxcribe',
       desc: 'Company profile, landing page, e-commerce, hingga web app custom — via konsultasi gratis.',
       ctaLabel: 'Jelajahi Jasa Website',
       href: '/jasa-website',
@@ -139,16 +139,16 @@ export const FALLBACK_HOME: HomeContent = {
   },
   faqs: [
     {
-      q: 'Apa itu Ordria?',
-      a: 'Ordria menghadirkan dua solusi digital: Ordria POS, aplikasi kasir & self-order berlangganan untuk coffee shop, dan Jasa Website Ordria, layanan pembuatan website profesional untuk berbagai bisnis.',
+      q: 'Apa itu Oxcribe?',
+      a: 'Oxcribe menghadirkan dua solusi digital: Oxcribe POS, aplikasi kasir & self-order berlangganan untuk coffee shop, dan Jasa Website Oxcribe, layanan pembuatan website profesional untuk berbagai bisnis.',
     },
     {
-      q: 'Apa bedanya Ordria POS dan Jasa Website?',
-      a: 'Ordria POS adalah produk SaaS siap pakai dengan paket bulanan — daftar, aktivasi, langsung jalan. Jasa Website adalah layanan custom: setiap website dirancang dan dibangun sesuai kebutuhan spesifik bisnis Anda lewat konsultasi gratis.',
+      q: 'Apa bedanya Oxcribe POS dan Jasa Website?',
+      a: 'Oxcribe POS adalah produk SaaS siap pakai dengan paket bulanan — daftar, aktivasi, langsung jalan. Jasa Website adalah layanan custom: setiap website dirancang dan dibangun sesuai kebutuhan spesifik bisnis Anda lewat konsultasi gratis.',
     },
     {
       q: 'Bagaimana cara memulai?',
-      a: 'Untuk Ordria POS, lihat halaman paket lalu hubungi sales untuk aktivasi. Untuk jasa website, buka halaman Jasa Website Ordria lalu kirim kebutuhan Anda lewat formulir konsultasi — gratis tanpa komitmen.',
+      a: 'Untuk Oxcribe POS, lihat halaman paket lalu hubungi sales untuk aktivasi. Untuk jasa website, buka halaman Jasa Website Oxcribe lalu kirim kebutuhan Anda lewat formulir konsultasi — gratis tanpa komitmen.',
     },
     {
       q: 'Bagaimana pembayaran dan dukungannya?',

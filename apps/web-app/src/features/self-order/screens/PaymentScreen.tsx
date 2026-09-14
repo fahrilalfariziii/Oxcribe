@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Order } from '../../../shared/types'
 import { normalizeTheme } from '../../../shared/types'
 import { formatRupiah } from '../../../shared/lib/format'
+import { platformFeeLabel } from '../../../shared/lib/fees'
 import { Button } from '../../../shared/components/ui'
 import { IconBack } from '../../../shared/components/icons'
 import { useCafe } from '../../../mock/store'
@@ -197,6 +198,14 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
         <div className="mb-6 rounded-[12px] border border-[#e2e2e2] bg-white p-[17px] text-center shadow-sm">
           <p className="text-sm font-semibold text-soil">Total Pembayaran</p>
           <p className="font-display text-2xl font-bold">{formatRupiah(liveOrder.total)}</p>
+          {(liveOrder.platformFee > 0 || liveOrder.subtotal > 0) && (
+            <div className="mt-2 space-y-0.5 text-left text-xs text-soil">
+              <div className="flex justify-between"><span>Subtotal</span><span className="text-ink">{formatRupiah(liveOrder.subtotal)}</span></div>
+              {liveOrder.platformFee > 0 && liveOrder.platformFeeBearer !== 'cafe' && (
+                <div className="flex justify-between"><span>{platformFeeLabel(business, formatRupiah)}</span><span className="text-ink">{formatRupiah(liveOrder.platformFee)}</span></div>
+              )}
+            </div>
+          )}
           <div className="my-4 border-t border-dashed border-[#e2e2e2]" />
           <div className="flex justify-between text-soil text-sm"><span>Order ID</span><span className="font-semibold text-ink">#{liveOrder.orderNumber}</span></div>
           <div className="flex justify-between text-soil text-sm mt-1"><span>Metode</span><span className="font-semibold text-ink">{methodLabel}</span></div>

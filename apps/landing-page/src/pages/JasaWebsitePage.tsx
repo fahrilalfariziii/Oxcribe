@@ -83,17 +83,17 @@ export function JasaWebsitePage() {
       <Headbar />
       <main>
         {/* HERO */}
-        <section className="mx-auto w-full max-w-[90rem] overflow-hidden px-4 pb-14 pt-8 sm:px-6 lg:pb-20 lg:pt-14">
+        <section className="mx-auto w-full max-w-[90rem] overflow-hidden px-4 pb-14 pt-8 sm:px-6 lg:px-8 lg:pb-20 lg:pt-14">
           <div className="relative mx-auto flex max-w-6xl flex-col items-center py-6 text-center sm:py-8">
             <div className="pointer-events-none absolute inset-0 -z-10 scale-95 rounded-3xl bg-gradient-to-tr from-secondary-container/20 via-primary-fixed/30 to-transparent blur-3xl" />
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-secondary/20 bg-secondary-fixed px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-on-secondary-fixed shadow-sm">
               <span className="material-symbols-outlined text-[14px]">language</span>
-              Jasa Website Ordria
+              Jasa Website Oxcribe
             </div>
-            <h1 className="font-display mb-5 max-w-4xl text-5xl font-bold leading-tight tracking-tight text-on-surface sm:text-6xl sm:leading-tight lg:text-[68px] lg:leading-[1.08]">
+            <h1 className="font-display mb-5 max-w-4xl text-balance text-[clamp(2rem,7.5vw,4.25rem)] font-bold leading-[1.1] tracking-tight text-on-surface">
               Website Profesional untuk <span className="font-bold italic text-secondary">Bisnis Anda</span>.
             </h1>
-            <p className="mb-8 max-w-2xl text-lg leading-relaxed text-on-surface-variant lg:text-xl">
+            <p className="mb-8 max-w-2xl text-base leading-relaxed text-on-surface-variant sm:text-lg lg:text-xl">
               Dari company profile hingga web app custom — dirancang rapi, cepat, dan siap
               mengembangkan bisnis. Tanpa harga paket: ceritakan kebutuhan Anda, kami susun
               penawarannya.
@@ -101,14 +101,14 @@ export function JasaWebsitePage() {
             <div className="mb-6 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row">
               <Link
                 to="/hubungi-sales?layanan=jasa-website"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-semibold text-on-primary shadow-lg transition-all hover:bg-primary-container active:scale-95"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-semibold text-on-primary shadow-lg transition-all hover:bg-primary-container active:scale-95 sm:w-auto"
               >
                 Konsultasi Gratis
                 <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
               </Link>
               <a
                 href="#layanan"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-outline-variant/50 bg-surface-container-lowest px-8 py-4 text-base font-semibold text-on-surface shadow-sm transition-all hover:bg-surface-container-low"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-outline-variant/50 bg-surface-container-lowest px-8 py-4 text-base font-semibold text-on-surface shadow-sm transition-all hover:bg-surface-container-low sm:w-auto"
               >
                 Lihat Layanan
               </a>
@@ -117,11 +117,11 @@ export function JasaWebsitePage() {
         </section>
 
         {/* LAYANAN */}
-        <section id="layanan" className="mx-auto w-full max-w-[90rem] scroll-mt-20 px-4 pb-20 sm:px-6">
+        <section id="layanan" className="mx-auto w-full max-w-[90rem] scroll-mt-20 px-4 pb-20 sm:px-6 lg:px-8">
           <p className="mb-2 text-center text-[11px] font-bold uppercase tracking-widest text-secondary">
             Yang Kami Kerjakan
           </p>
-          <h2 className="font-display mx-auto mb-10 max-w-2xl text-center text-4xl font-bold tracking-tight text-on-surface lg:text-5xl">
+          <h2 className="font-display mx-auto mb-10 max-w-2xl text-balance text-center text-[clamp(1.75rem,5vw,3rem)] font-bold leading-tight tracking-tight text-on-surface">
             Layanan Pembuatan Website
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -148,15 +148,15 @@ export function JasaWebsitePage() {
         </section>
 
         {/* ALUR KERJA */}
-        <section className="w-full bg-surface-container-low py-20 lg:py-24">
-          <div className="mx-auto max-w-[90rem] px-4 sm:px-6">
+        <section className="w-full bg-surface-container-low py-16 sm:py-20 lg:py-24">
+          <div className="mx-auto max-w-[90rem] px-4 sm:px-6 lg:px-8">
             <p className="mb-2 text-center text-[11px] font-bold uppercase tracking-widest text-secondary">
               Cara Kerja Sama
             </p>
-            <h2 className="font-display mx-auto mb-10 max-w-2xl text-center text-4xl font-bold tracking-tight text-on-surface lg:text-5xl">
+            <h2 className="font-display mx-auto mb-10 max-w-2xl text-balance text-center text-[clamp(1.75rem,5vw,3rem)] font-bold leading-tight tracking-tight text-on-surface">
               Alur Pengerjaan yang Transparan
             </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
               {ALUR.map((s) => (
                 <div key={s.no} className="rounded-2xl bg-surface-container-lowest p-6 shadow-sm ring-1 ring-outline-variant/40">
                   <span className="font-display text-4xl font-bold text-secondary/40">{s.no}</span>
@@ -177,11 +177,11 @@ export function JasaWebsitePage() {
         </section>
 
         {/* CTA */}
-        <section className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
-          <div className="relative overflow-hidden rounded-3xl bg-primary-container p-8 text-on-primary shadow-2xl sm:p-12">
+        <section className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="relative overflow-hidden rounded-3xl bg-primary-container p-6 text-on-primary shadow-2xl sm:p-12">
             <div className="pointer-events-none absolute -bottom-20 -right-20 h-80 w-80 rounded-full bg-secondary-container/20 blur-3xl" />
             <div className="relative z-10 max-w-2xl">
-              <h2 className="font-display text-3xl font-bold tracking-tight sm:text-[36px] sm:leading-tight">
+              <h2 className="font-display text-[clamp(1.6rem,5vw,2.25rem)] font-bold leading-tight tracking-tight sm:leading-tight">
                 Punya Kebutuhan Website? Diskusikan Gratis.
               </h2>
               <p className="mb-8 mt-3 text-base text-surface-container-highest/90">
@@ -190,7 +190,7 @@ export function JasaWebsitePage() {
               </p>
               <Link
                 to="/hubungi-sales?layanan=jasa-website"
-                className="inline-flex items-center gap-2 rounded-xl bg-secondary-container px-8 py-4 text-base font-semibold text-on-secondary-fixed shadow-md transition-all hover:brightness-95"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-secondary-container px-8 py-4 text-base font-semibold text-on-secondary-fixed shadow-md transition-all hover:brightness-95 sm:w-auto"
               >
                 Hubungi Tim Sales
                 <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
@@ -205,7 +205,7 @@ export function JasaWebsitePage() {
             <span className="mb-2 block text-[13px] font-bold uppercase tracking-widest text-secondary">
               Tanya Jawab Jasa
             </span>
-            <h2 className="font-display text-4xl font-bold tracking-tight text-on-surface lg:text-5xl">
+            <h2 className="font-display text-[clamp(1.75rem,5vw,3rem)] font-bold leading-tight tracking-tight text-on-surface">
               Seputar Jasa Website Ordria
             </h2>
           </div>

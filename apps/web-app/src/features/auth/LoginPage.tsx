@@ -55,7 +55,7 @@ export function LoginPage() {
         className="w-full max-w-sm rounded-[16px] bg-white p-8 ring-1 ring-[#e4e2dd] shadow-2xs"
         onSubmit={handleSubmit}
       >
-        <p className="font-display text-2xl font-semibold">Ordria</p>
+        <p className="font-display text-2xl font-semibold">Oxcribe</p>
         <p className="mb-6 text-sm text-muted">Masuk dengan email dan password.</p>
 
         {authMode === 'local' && (

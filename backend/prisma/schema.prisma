@@ -24,6 +24,10 @@ model Business {
   taxBearer            String   @default("customer") @map("tax_bearer") // customer | cafe
   serviceChargeRate    Decimal  @default(0) @db.Decimal(6, 4) @map("service_charge_rate")
   serviceChargeEnabled Boolean  @default(false) @map("service_charge_enabled")
+  // Service charge independen dari pajak: mode percent (% dari subtotal) atau flat (Rp per transaksi).
+  // Owner bebas on/off kapan saja (tidak ikut flag taxAndFees).
+  serviceChargeMode    String   @default("percent") @map("service_charge_mode") // percent | flat
+  serviceChargeFlat    Decimal  @default(0) @db.Decimal(14, 2) @map("service_charge_flat")
   soundEnabled         Boolean  @default(true) @map("sound_enabled")
   openingCash          Decimal  @default(0) @db.Decimal(14, 2) @map("opening_cash")
   closingCash          Decimal? @map("closing_cash") @db.Decimal(14, 2) // uang closing shift aktif (null = shift terbuka)
@@ -37,6 +41,14 @@ model Business {
   midtransClientKey     String?  @map("midtrans_client_key")
   midtransQrisAcquirer  String?  @map("midtrans_qris_acquirer") // gopay | airpay_shopee
   status               String   @default("active")
+  // ---- Platform fee self-order non-tunai (per kafe, diatur Platform Admin) ----
+  // Harga menu diasumsikan sudah include pajak/service, jadi basis fee = subtotal.
+  // Bearer mengikuti pola taxBearer: customer = fee di atas total; cafe = mengurangi pendapatan owner.
+  platformFeeEnabled   Boolean  @default(false) @map("platform_fee_enabled")
+  platformFeeMode      String   @default("percent") @map("platform_fee_mode") // percent | flat
+  platformFeePercent   Decimal  @default(0) @db.Decimal(6, 4) @map("platform_fee_percent") // persen dari subtotal
+  platformFeeFlat      Decimal  @default(0) @db.Decimal(14, 2) @map("platform_fee_flat") // rupiah per transaksi
+  platformFeeBearer    String   @default("customer") @map("platform_fee_bearer") // customer | cafe
   // ---- Kolom platform SaaS (Fase 3, docs/prd_SaaS_multitenant.md §7) ----
   slug                 String?  @unique // identifier unik tenant (URL/subdomain self-order)
   currentPlanId        Int?     @map("current_plan_id") // denormalisasi paket aktif (lookup cepat feature gate)
@@ -164,6 +176,11 @@ model Order {
   tax           Decimal   @default(0) @db.Decimal(14, 2)
   taxLabel      String?   @map("tax_label")
   taxBearer     String?   @map("tax_bearer")
+  // Snapshot platform fee + estimasi MDR saat order dibuat (config admin bisa berubah belakangan).
+  // Fee hanya untuk self_order non-tunai; cash & manual order selalu 0.
+  platformFee       Decimal @default(0) @map("platform_fee") @db.Decimal(14, 2)
+  platformFeeBearer String? @map("platform_fee_bearer") // customer | cafe
+  mdrFee            Decimal @default(0) @map("mdr_fee") @db.Decimal(14, 2) // estimasi tabel resmi Midtrans
   total         Decimal   @db.Decimal(14, 2)
   syncStatus    String    @default("synced") @map("sync_status") // pending | syncing | synced | failed
   createdAt     DateTime  @default(now()) @map("created_at")

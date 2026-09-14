@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { CafeProvider, useCafe } from "./mock/store";
+import { isFeatureOn, canUseTheme } from "./shared/lib/features";
 import { LoginPage } from "./features/auth/LoginPage";
 import { ForgotPasswordPage } from "./features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "./features/auth/ResetPasswordPage";
@@ -34,6 +35,29 @@ function RootRedirect() {
   return <Navigate to="/frontoffice/orders" replace />;
 }
 
+// Guard fitur generik (padanan component-mode dari throw redirect() di docs
+// React Router — Context7 /remix-run/react-router): direct URL di-redirect
+// bila flag OFF. taxAndFees fail-closed; flag lain fail-open bila key hilang.
+function RequireFeature({ flag, fallback, children }: { flag: string | string[]; fallback: string; children: React.ReactNode }) {
+  const { business } = useCafe();
+  const flags = Array.isArray(flag) ? flag : [flag];
+  // Tema spesial: lolos bila preset ATAU custom ON.
+  const on = flags[0] === 'themePreset'
+    ? canUseTheme(business)
+    : flags.every((f) => isFeatureOn(business, f));
+  if (!on) return <Navigate to={fallback} replace />;
+  return <>{children}</>;
+}
+
+function RequireTaxFeature({ children }: { children: React.ReactNode }) {
+  const { business } = useCafe();
+  // Halaman memuat section biaya aplikasi di paling atas — ikut terbuka bila fee menyala
+  // walau flag pajak mati (bearer fee keputusan owner, on/off fee keputusan admin).
+  const feeOn = business.platformFeeEnabled === true;
+  if (feeOn) return <>{children}</>;
+  return <RequireFeature flag="taxAndFees" fallback="/backoffice/settings/business">{children}</RequireFeature>;
+}
+
 export default function App() {
   return (
     <CafeProvider>
@@ -60,7 +84,7 @@ export default function App() {
             <Route index element={<Navigate to="orders" replace />} />
             <Route path="orders" element={<OrdersPage />} />
             <Route path="catalog" element={<CatalogPage />} />
-            <Route path="inventory" element={<InventoryPage />} />
+            <Route path="inventory" element={<RequireFeature flag="inventory" fallback="/frontoffice/orders"><InventoryPage /></RequireFeature>} />
             <Route path="manual" element={<ManualOrderPage />} />
             <Route path="settings" element={<PosSettingsPage />} />
           </Route>
@@ -81,7 +105,7 @@ export default function App() {
             <Route path="sales">
               <Route index element={<Navigate to="omset" replace />} />
               <Route path="omset" element={<SalesOmsetPage />} />
-              <Route path="performa" element={<SalesPerformancePage />} />
+              <Route path="performa" element={<RequireFeature flag={["analyticsFull", "performanceItem"]} fallback="/backoffice/sales/omset"><SalesPerformancePage /></RequireFeature>} />
               <Route path="riwayat" element={<SalesHistoryPage />} />
             </Route>
 
@@ -91,13 +115,13 @@ export default function App() {
               <Route path="categories" element={<MenuCategoriesPage />} />
               <Route path="variants" element={<MenuVariantsPage />} />
             </Route>
-            <Route path="tables" element={<TablesPage />} />
+            <Route path="tables" element={<RequireFeature flag="tableManagement" fallback="/backoffice/dashboard"><TablesPage /></RequireFeature>} />
             <Route path="staff" element={<StaffPage />} />
             <Route path="settings" element={<OwnerSettingsPage />}>
               <Route index element={<Navigate to="profile" replace />} />
               <Route path="profile" element={<ProfileSettingsPage />} />
               <Route path="business" element={<CafeSettingsPage />} />
-              <Route path="tax" element={<TaxSettingsPage />} />
+              <Route path="tax" element={<RequireTaxFeature><TaxSettingsPage /></RequireTaxFeature>} />
               <Route path="payment" element={<PaymentSettingsPage />} />
               <Route path="cafe" element={<Navigate to="business" replace />} />
             </Route>

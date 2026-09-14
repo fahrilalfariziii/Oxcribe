@@ -110,12 +110,23 @@ export function StatusScreen({ order, cart, tableNumber, onOrderAgain, onEndSess
             ))}
           </div>
           <div className="flex flex-col gap-2 border-t border-[#e2e2e2] pt-3">
+            {/* Rincian hanya bila ditanggung pelanggan; bila ditanggung kafe disembunyikan total. */}
+            {order?.taxBearer !== 'cafe' && (
             <div className="flex items-center justify-between text-sage">
               <span className="font-bold text-ink">Pajak</span>
               <span className="font-display text-l font-bold text-sage">
                 {formatRupiah(order?.tax ?? 0)}
               </span>
             </div>
+            )}
+            {(order?.platformFee ?? 0) > 0 && order?.platformFeeBearer !== 'cafe' && (
+              <div className="flex items-center justify-between text-sage">
+                <span className="font-bold text-ink">Biaya layanan</span>
+                <span className="font-display text-l font-bold text-sage">
+                  {formatRupiah(order?.platformFee ?? 0)}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="font-bold text-ink">Total Harga</span>
               <span className="font-display text-l font-bold text-sage">

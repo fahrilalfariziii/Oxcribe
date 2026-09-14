@@ -73,8 +73,8 @@ const FAQS = [
     a: 'Bisa. Hubungi tim sales — perubahan paket langsung memengaruhi akses fitur, sedangkan seluruh data historis tetap tersimpan.',
   },
   {
-    q: 'Apakah Ordria juga membuatkan website untuk bisnis saya?',
-    a: 'Ya. Lewat Jasa Website Ordria kami mengerjakan company profile, landing page, katalog & e-commerce, hingga web app custom. Tidak ada harga paket — ceritakan kebutuhan Anda lewat halaman konsultasi dan tim kami akan menyusun penawaran.',
+    q: 'Apakah Oxcribe juga membuatkan website untuk bisnis saya?',
+    a: 'Ya. Lewat Jasa Website Oxcribe kami mengerjakan company profile, landing page, katalog & e-commerce, hingga web app custom. Tidak ada harga paket — ceritakan kebutuhan Anda lewat halaman konsultasi dan tim kami akan menyusun penawaran.',
   },
   {
     q: 'Bagaimana alur pemesanan jasa website?',
@@ -113,35 +113,35 @@ export function LandingPage() {
       <Headbar />
       <main>
         {/* HERO */}
-        <section className="mx-auto w-full max-w-[90rem] overflow-hidden px-4 pb-16 pt-8 sm:px-6 lg:pb-24 lg:pt-14">
+        <section className="mx-auto w-full max-w-[90rem] overflow-hidden px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:pb-24 lg:pt-14">
           <div className="relative mx-auto flex max-w-6xl flex-col items-center py-6 text-center sm:py-8">
             <div className="pointer-events-none absolute inset-0 -z-10 scale-95 rounded-3xl bg-gradient-to-tr from-secondary-container/20 via-primary-fixed/30 to-transparent blur-3xl" />
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-secondary/20 bg-secondary-fixed px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-on-secondary-fixed shadow-sm">
               <span className="text-xs font-bold text-secondary">⚡</span>
               SaaS POS Kafe &amp; Jasa Pembuatan Website
             </div>
-            <h1 className="font-display mb-5 max-w-4xl text-5xl font-bold leading-tight tracking-tight text-on-surface sm:text-6xl sm:leading-tight lg:text-[68px] lg:leading-[1.08]">
+            <h1 className="font-display mb-5 max-w-4xl text-balance text-[clamp(2rem,7.5vw,4.25rem)] font-bold leading-[1.1] tracking-tight text-on-surface">
               Sistem Kasir &amp; Pemesanan Terpadu untuk{' '}
               <span className="font-bold italic text-secondary">Coffee Shop Modern</span>.
             </h1>
-            <p className="mb-8 max-w-2xl text-lg leading-relaxed text-on-surface-variant lg:text-xl">
+            <p className="mb-8 max-w-2xl text-base leading-relaxed text-on-surface-variant sm:text-lg lg:text-xl">
               Self-order QR meja tanpa unduh aplikasi, feed order real-time untuk kasir/barista,
               manajemen stok, dan analitik owner — semua dalam satu aplikasi.
             </p>
             <div className="mb-6 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row">
               <Link
                 to="/hubungi-sales"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-semibold text-on-primary shadow-lg transition-all hover:bg-primary-container active:scale-95"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-semibold text-on-primary shadow-lg transition-all hover:bg-primary-container active:scale-95 sm:w-auto"
               >
                 Hubungi Sales
                 <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
               </Link>
               <Link
                 to="/jasa-website"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-outline-variant/50 bg-surface-container-lowest px-8 py-4 text-base font-semibold text-on-surface shadow-sm transition-all hover:bg-surface-container-low"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-outline-variant/50 bg-surface-container-lowest px-8 py-4 text-base font-semibold text-on-surface shadow-sm transition-all hover:bg-surface-container-low sm:w-auto"
               >
                 <span className="material-symbols-outlined text-[18px] text-secondary">language</span>
-                Jasa Website Ordria
+                Jasa Website Oxcribe
               </Link>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[13px] text-on-surface-variant">
@@ -158,11 +158,11 @@ export function LandingPage() {
         </section>
 
         {/* BENTO FITUR */}
-        <section id="fitur" className="mx-auto w-full max-w-[90rem] scroll-mt-20 px-4 pb-20 sm:px-6">
+        <section id="fitur" className="mx-auto w-full max-w-[90rem] scroll-mt-20 px-4 pb-20 sm:px-6 lg:px-8">
           <p className="mb-8 text-center text-[11px] font-bold uppercase tracking-widest text-secondary">
-            Nilai Unggulan Ordria untuk Operasional Kafe
+            Nilai Unggulan Oxcribe untuk Operasional Kafe
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
             {BENTO.map((f) => (
               <div
                 key={f.title}
@@ -183,13 +183,13 @@ export function LandingPage() {
         </section>
 
         {/* PRICING */}
-        <section id="pricing" className="w-full scroll-mt-16 bg-surface-container-low py-20 lg:py-28">
-          <div className="mx-auto max-w-[90rem] px-4 sm:px-6">
+        <section id="pricing" className="w-full scroll-mt-16 bg-surface-container-low py-16 sm:py-20 lg:py-28">
+          <div className="mx-auto max-w-[90rem] px-4 sm:px-6 lg:px-8">
             <div className="mx-auto mb-12 max-w-3xl text-center">
               <span className="mb-2 block text-[13px] font-bold uppercase tracking-widest text-secondary">
                 Transparan &amp; Terjangkau
               </span>
-              <h2 className="font-display mb-4 text-4xl font-bold tracking-tight text-on-surface lg:text-5xl">
+              <h2 className="font-display mb-4 text-balance text-[clamp(1.75rem,5vw,3rem)] font-bold leading-tight tracking-tight text-on-surface">
                 Pilih Paket yang Pas untuk Skala Bisnis Kafe Anda
               </h2>
               <p className="text-[15px] text-on-surface-variant">
@@ -202,9 +202,9 @@ export function LandingPage() {
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-1 items-stretch gap-8 lg:grid-cols-3">
+            <div className="grid grid-cols-1 items-stretch gap-6 sm:gap-8 lg:grid-cols-3">
               {/* Starter */}
-              <div className="flex flex-col justify-between rounded-2xl border border-outline-variant/50 bg-surface-container-lowest p-8 shadow-sm">
+              <div className="flex flex-col justify-between rounded-2xl border border-outline-variant/50 bg-surface-container-lowest p-6 shadow-sm sm:p-8">
                 <div>
                   <div className="mb-6">
                     <h3 className="font-display mb-1 text-xl font-semibold text-on-surface">Starter</h3>
@@ -248,7 +248,7 @@ export function LandingPage() {
               </div>
 
               {/* Pro */}
-              <div className="relative flex flex-col justify-between rounded-2xl border-2 border-secondary bg-surface-container-lowest p-8 shadow-xl lg:-translate-y-2">
+              <div className="relative order-first flex flex-col justify-between rounded-2xl border-2 border-secondary bg-surface-container-lowest p-6 shadow-xl sm:p-8 lg:order-none lg:-translate-y-2">
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-secondary px-4 py-1 text-[11px] font-extrabold uppercase tracking-wider text-on-secondary shadow-sm">
                   Paling Populer untuk Coffee Shop
                 </div>
@@ -292,7 +292,7 @@ export function LandingPage() {
               </div>
 
               {/* Enterprise */}
-              <div className="flex flex-col justify-between rounded-2xl border border-outline-variant/50 bg-surface-container-lowest p-8 shadow-sm">
+              <div className="flex flex-col justify-between rounded-2xl border border-outline-variant/50 bg-surface-container-lowest p-6 shadow-sm sm:p-8">
                 <div>
                   <div className="mb-6">
                     <h3 className="font-display mb-1 text-xl font-semibold text-on-surface">Enterprise</h3>
@@ -327,31 +327,31 @@ export function LandingPage() {
         </section>
 
         {/* CTA CARD */}
-        <section className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
-          <div className="relative overflow-hidden rounded-3xl bg-primary-container p-8 text-on-primary shadow-2xl sm:p-14">
+        <section className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6 lg:px-8">
+          <div className="relative overflow-hidden rounded-3xl bg-primary-container p-6 text-on-primary shadow-2xl sm:p-14">
             <div className="pointer-events-none absolute -bottom-20 -right-20 h-80 w-80 rounded-full bg-secondary-container/20 blur-3xl" />
             <div className="relative z-10 max-w-3xl">
               <span className="mb-4 inline-block rounded-full bg-surface-container-high/20 px-3 py-1 text-[13px] font-semibold uppercase tracking-wider text-on-primary">
                 Onboarding Terpandu
               </span>
-              <h2 className="font-display mb-4 text-3xl font-bold tracking-tight text-on-primary sm:text-[40px] sm:leading-tight">
+              <h2 className="font-display mb-4 text-[clamp(1.6rem,5vw,2.5rem)] font-bold leading-tight tracking-tight text-on-primary">
                 Siap Tingkatkan Efisiensi &amp; Omset Kafe Anda Hari Ini?
               </h2>
               <p className="mb-8 max-w-xl text-lg text-surface-container-highest/90">
-                Diskusikan kebutuhan kafe Anda bersama tim sales Ordria — dari pilihan paket,
+                Diskusikan kebutuhan kafe Anda bersama tim sales Oxcribe — dari pilihan paket,
                 jadwal live demo, hingga rencana implementasi di outlet Anda.
               </p>
               <div className="flex max-w-2xl flex-col gap-3 sm:flex-row">
                 <Link
                   to="/hubungi-sales"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-secondary-container px-8 py-4 text-base font-semibold text-on-secondary-fixed shadow-md transition-all hover:brightness-95"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-secondary-container px-8 py-4 text-base font-semibold text-on-secondary-fixed shadow-md transition-all hover:brightness-95 sm:w-auto"
                 >
                   Hubungi Tim Sales
                   <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                 </Link>
                 <a
                   href="#pricing"
-                  className="inline-flex items-center justify-center rounded-xl px-8 py-4 text-base font-semibold text-on-primary ring-1 ring-on-primary/30 transition-all hover:bg-white/10"
+                  className="inline-flex w-full items-center justify-center rounded-xl px-8 py-4 text-base font-semibold text-on-primary ring-1 ring-on-primary/30 transition-all hover:bg-white/10 sm:w-auto"
                 >
                   Lihat Paket
                 </a>
@@ -369,7 +369,7 @@ export function LandingPage() {
             <span className="mb-2 block text-[13px] font-bold uppercase tracking-widest text-secondary">
               Tanya Jawab
             </span>
-            <h2 className="font-display text-4xl font-bold tracking-tight text-on-surface lg:text-5xl">
+            <h2 className="font-display text-[clamp(1.75rem,5vw,3rem)] font-bold leading-tight tracking-tight text-on-surface">
               Pertanyaan yang Sering Diajukan
             </h2>
             <p className="mt-2 text-[15px] text-on-surface-variant">

@@ -17,6 +17,13 @@ type Detail = {
     onboardedAt: string | null
     createdAt: string
     featureOverrides: Record<string, boolean> | null
+    platformFee: {
+      enabled: boolean
+      mode: string
+      percent: string | number
+      flat: string | number
+      bearer: string
+    } | null
   }
   plan: { code: string; name: string } | null
   subscriptions: { id: number; status: string; plan: { code: string; name: string } }[]
@@ -32,21 +39,43 @@ type Detail = {
   }[]
 }
 
-const KNOWN_FLAGS = ['selfOrder', 'tableManagement', 'inventory', 'offlineSync', 'analyticsFull', 'themePreset', 'themeCustom', 'taxFull', 'exportCsv']
+// Kanon full kill-switch (offlineSync disengaja dikecualikan; taxFull lawas diganti taxAndFees).
+const KNOWN_FLAGS = ['selfOrder', 'tableManagement', 'inventory', 'analyticsFull', 'salesType', 'performanceItem', 'exportCsv', 'themePreset', 'themeCustom', 'taxAndFees']
+
+const FLAG_HINTS: Record<string, string> = {
+  selfOrder: 'Checkout QR pelanggan (OFF = order publik 403)',
+  tableManagement: 'Tulis meja (tambah/edit/QR/hapus)',
+  inventory: 'Seluruh modul bahan & stok',
+  analyticsFull: 'Analitik lengkap (OFF = dashboard ringkas, /sales 403)',
+  salesType: 'Tab & data Self vs Manual',
+  performanceItem: 'Halaman Performa Item',
+  exportCsv: 'Tombol ekspor CSV owner',
+  themePreset: 'Preset tema sekali-klik',
+  themeCustom: 'Kustom penuh tema (warna/font/gambar)',
+  taxAndFees: 'Pajak & Biaya (OFF = total = subtotal murni)',
+}
 
 export function TenantDetailPage() {
   const { id } = useParams()
   const { admin } = usePlatform()
   const isSuper = admin?.role === 'superadmin'
+  // Keputusan: superadmin + support boleh toggle fitur (backend mengizinkan keduanya).
+  const canManageFeatures = admin?.role === 'superadmin' || admin?.role === 'support'
   const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [planCode, setPlanCode] = useState('')
   const [status, setStatus] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [overrideKey, setOverrideKey] = useState('selfOrder')
+  const [overrideKey, setOverrideKey] = useState('taxAndFees')
   const [overrideValue, setOverrideValue] = useState('true')
   const [expandedAudit, setExpandedAudit] = useState<number | null>(null)
+  // Form platform fee self-order non-tunai (per kafe, hasil kerja sama).
+  // Bearer adalah keputusan owner (diatur di halaman Pajak & Biaya owner) — admin tidak mengubahnya.
+  const [feeEnabled, setFeeEnabled] = useState(false)
+  const [feeMode, setFeeMode] = useState<'percent' | 'flat'>('percent')
+  const [feePercent, setFeePercent] = useState('5')
+  const [feeFlat, setFeeFlat] = useState('1000')
 
   async function load() {
     setError('')
@@ -55,6 +84,11 @@ export function TenantDetailPage() {
       setDetail(res)
       setPlanCode(res.plan?.code ?? '')
       setStatus(res.subscriptions[0]?.status ?? '')
+      const pf = res.business.platformFee
+      setFeeEnabled(pf?.enabled === true)
+      setFeeMode(pf?.mode === 'flat' ? 'flat' : 'percent')
+      setFeePercent(String(pf?.percent ?? 5))
+      setFeeFlat(String(pf?.flat ?? 1000))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat')
     }
@@ -135,7 +169,7 @@ export function TenantDetailPage() {
             <CardTitle>Override fitur per tenant</CardTitle>
             <p className="mt-1 text-xs text-slate-500">
               Di luar paket — key yang tidak diatur tetap mengikuti flag paket.
-              {!isSuper && ' (khusus superadmin untuk mengubah)'}
+              {FLAG_HINTS[overrideKey] ? ` ${FLAG_HINTS[overrideKey]}.` : ''}
             </p>
             {Object.keys(overrides).length === 0 ? (
               <p className="mt-3 rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-400">
@@ -145,10 +179,10 @@ export function TenantDetailPage() {
               <ul className="mt-3 space-y-1.5 text-sm">
                 {Object.entries(overrides).map(([k, v]) => (
                   <li key={k} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                    <span className="font-mono">
+                    <span className="font-mono" title={FLAG_HINTS[k] ?? k}>
                       {k} = <strong>{String(v)}</strong>
                     </span>
-                    {isSuper && (
+                    {canManageFeatures && (
                       <button
                         onClick={() => void act(() => platformApi.updateOverrides(id!, { [k]: null }), `Override ${k} dihapus.`)}
                         className="text-xs font-medium text-red-700 hover:underline"
@@ -160,11 +194,11 @@ export function TenantDetailPage() {
                 ))}
               </ul>
             )}
-            {isSuper && (
+            {canManageFeatures && (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Select value={overrideKey} onChange={(e) => setOverrideKey(e.target.value)} className="h-10 w-auto">
                   {KNOWN_FLAGS.map((f) => (
-                    <option key={f} value={f}>
+                    <option key={f} value={f} title={FLAG_HINTS[f] ?? f}>
                       {f}
                     </option>
                   ))}
@@ -195,6 +229,79 @@ export function TenantDetailPage() {
                 </Button>
               </div>
             )}
+          </Card>
+
+          <Card>
+            <CardTitle>Platform fee self-order (non-tunai)</CardTitle>
+            <p className="mt-1 text-xs text-slate-500">
+              Per kafe (hasil kerja sama). Hanya untuk self-order QRIS/transfer — cash & manual tidak kena.
+              Siapa yang menanggung adalah keputusan owner (di halaman Pajak & Biaya).
+              Perubahan tercatat di audit log; order lama tidak berubah.
+            </p>
+            <p className="mt-2 text-xs text-slate-600">
+              Keputusan owner saat ini:{' '}
+              <strong>{detail.business.platformFee?.bearer === 'cafe' ? 'Ditanggung kafe' : 'Dibayar pelanggan'}</strong>
+            </p>
+            {(() => {
+              const pct = Math.min(100, Math.max(0, Number(feePercent) || 0))
+              const flat = Math.max(0, Number(feeFlat) || 0)
+              const exSubtotal = 50000
+              const exFee = !feeEnabled ? 0 : feeMode === 'flat' ? Math.round(flat) : Math.round(exSubtotal * (pct / 100))
+              const rp = (n: number) => `Rp${n.toLocaleString('id-ID')}`
+              const grossCustomer = exSubtotal + exFee
+              const netQrisCustomer = grossCustomer - exFee - Math.round(grossCustomer * 0.007)
+              const netQrisCafe = exSubtotal - exFee - Math.round(exSubtotal * 0.007)
+              return (
+                <>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input type="checkbox" checked={feeEnabled} onChange={(e) => setFeeEnabled(e.target.checked)} disabled={!canManageFeatures} />
+                      Fee aktif
+                    </label>
+                    <Field label="Mode">
+                      <Select value={feeMode} onChange={(e) => setFeeMode(e.target.value as 'percent' | 'flat')} className="h-10" disabled={!canManageFeatures}>
+                        <option value="percent">Persen dari subtotal</option>
+                        <option value="flat">Flat per transaksi</option>
+                      </Select>
+                    </Field>
+                    {feeMode === 'percent' ? (
+                      <Field label="Persen (%)">
+                        <Input value={feePercent} onChange={(e) => setFeePercent(e.target.value)} inputMode="decimal" placeholder="5" disabled={!canManageFeatures} />
+                      </Field>
+                    ) : (
+                      <Field label="Flat (Rp)">
+                        <Input value={feeFlat} onChange={(e) => setFeeFlat(e.target.value)} inputMode="numeric" placeholder="1000" disabled={!canManageFeatures} />
+                      </Field>
+                    )}
+                  </div>
+                  <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                    <p className="font-semibold text-slate-800">Simulasi subtotal {rp(exSubtotal)} · fee {rp(exFee)}</p>
+                    <p className="mt-1">Bila ditanggung pelanggan: total {rp(grossCustomer)} · bersih QRIS (est.) {rp(netQrisCustomer)}</p>
+                    <p>Bila ditanggung kafe: total {rp(exSubtotal)} · bersih QRIS (est.) {rp(netQrisCafe)}</p>
+                  </div>
+                  {canManageFeatures && (
+                    <Button
+                      size="sm"
+                      className="mt-3 h-10"
+                      onClick={() =>
+                        void act(
+                          () =>
+                            platformApi.updatePlatformFee(id!, {
+                              platformFeeEnabled: feeEnabled,
+                              platformFeeMode: feeMode,
+                              platformFeePercent: pct,
+                              platformFeeFlat: flat,
+                            }),
+                          'Platform fee disimpan.',
+                        )
+                      }
+                    >
+                      Simpan platform fee
+                    </Button>
+                  )}
+                </>
+              )
+            })()}
           </Card>
 
           <Card>

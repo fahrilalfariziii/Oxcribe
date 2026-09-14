@@ -4,7 +4,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../lib/errors";
-import { FEATURES, requirePublicFeature } from "../lib/feature-gate";
+import { FEATURES, getBusinessFeatures, isFeatureOn, requirePublicFeature } from "../lib/feature-gate";
 import { PLANS, getPlanByCode } from "../lib/plans";
 import { asyncHandler } from "../middleware/error-handler";
 import { createOrder } from "../services/order.service";
@@ -66,6 +66,16 @@ publicRouter.get(
 
     const midtransMode = (table.business as unknown as { midtransMode?: string }).midtransMode ?? "global";
     const hasCustomKey = Boolean((table.business as unknown as { midtransServerKeyEnc?: string }).midtransServerKeyEnc);
+    // Flag Pajak & Biaya OFF = paksa pajak & service NOL di response publik
+    // agar cart self-order selalu hitung total = subtotal murni.
+    // Sertakan flags penuh agar FE bisa tampilkan state "Self-order nonaktif" dkk.
+    let flags: Record<string, boolean> = {};
+    try {
+      flags = (await getBusinessFeatures(table.businessId)).flags;
+    } catch {
+      flags = {};
+    }
+    const taxAndFeesOn = isFeatureOn(flags, FEATURES.TAX_AND_FEES);
     res.json({
       table: {
         id: table.id,
@@ -78,12 +88,21 @@ publicRouter.get(
         name: table.business.name,
         tagline: table.business.tagline,
         logoUrl: table.business.logoUrl,
-        taxEnabled: table.business.taxEnabled,
+        taxEnabled: taxAndFeesOn ? table.business.taxEnabled : false,
         taxLabel: table.business.taxLabel,
-        taxRate: table.business.taxRate,
+        taxRate: taxAndFeesOn ? table.business.taxRate : 0,
         taxBearer: table.business.taxBearer,
         serviceChargeEnabled: table.business.serviceChargeEnabled,
         serviceChargeRate: table.business.serviceChargeRate,
+        serviceChargeMode: (table.business as unknown as { serviceChargeMode?: string }).serviceChargeMode ?? "percent",
+        serviceChargeFlat: (table.business as unknown as { serviceChargeFlat?: unknown }).serviceChargeFlat ?? 0,
+        // Config platform fee self-order non-tunai (per kafe, dari Platform Admin).
+        platformFeeEnabled: (table.business as unknown as { platformFeeEnabled?: boolean }).platformFeeEnabled ?? false,
+        platformFeeMode: (table.business as unknown as { platformFeeMode?: string }).platformFeeMode ?? "percent",
+        platformFeePercent: (table.business as unknown as { platformFeePercent?: unknown }).platformFeePercent ?? 0,
+        platformFeeFlat: (table.business as unknown as { platformFeeFlat?: unknown }).platformFeeFlat ?? 0,
+        platformFeeBearer: (table.business as unknown as { platformFeeBearer?: string }).platformFeeBearer ?? "customer",
+        features: flags,
         enabledPaymentMethods: (table.business as unknown as { enabledPaymentMethods?: unknown }).enabledPaymentMethods ?? ["cash", "qris"],
         paymentSettings: (table.business as unknown as { paymentSettings?: unknown }).paymentSettings ?? {},
         midtransMode,
@@ -275,6 +294,7 @@ publicRouter.post(
               serviceCharge: order.serviceCharge,
               tax: order.tax,
               taxLabel: order.taxLabel,
+              platformFee: (order as unknown as { platformFee?: unknown }).platformFee ?? 0,
             }),
           });
           if (charge) {
@@ -413,9 +433,9 @@ publicRouter.post(
     if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
 
     // Gate self-order: recharge milik paket tanpa self-order ditolak 403.
-    const { getBusinessFeatures } = await import("../lib/feature-gate");
-    const { flags: rechargeFlags } = await getBusinessFeatures(order.businessId);
-    if (rechargeFlags[FEATURES.SELF_ORDER] !== true) {
+    const { getBusinessFeatures: getBF, isFeatureOn: isOn } = await import("../lib/feature-gate");
+    const { flags: rechargeFlags } = await getBF(order.businessId);
+    if (!isOn(rechargeFlags, FEATURES.SELF_ORDER)) {
       throw AppError.forbidden(
         "Fitur ini tidak termasuk paket kafe Anda (selfOrder). Hubungi tim sales Ordria untuk upgrade."
       );
@@ -456,6 +476,7 @@ publicRouter.post(
         serviceCharge: order.serviceCharge,
         tax: order.tax,
         taxLabel: order.taxLabel,
+        platformFee: (order as unknown as { platformFee?: unknown }).platformFee ?? 0,
       }),
     });
     if (!charge) throw AppError.badRequest("Midtrans tidak terkonfigurasi untuk bisnis ini");

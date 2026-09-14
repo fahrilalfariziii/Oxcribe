@@ -1,5 +1,6 @@
 import type { Order } from '../../../shared/types'
 import { formatRupiah, formatTime } from '../../../shared/lib/format'
+import { estimateMdrPreview, netEstimate } from '../../../shared/lib/fees'
 import { useCafe } from '../../../mock/store'
 
 interface Props {
@@ -9,6 +10,11 @@ interface Props {
 
 export function ReceiptModal({ order, onClose }: Props) {
   const { business } = useCafe()
+  // MDR: pakai snapshot order bila ada; order lama (snapshot 0) pakai estimasi live.
+  // Selalu berlabel estimasi — angka aktual mengikuti settlement Midtrans.
+  const mdrLive = estimateMdrPreview(order.total, order.paymentMethod)
+  const mdrFee = (order.mdrFee ?? 0) > 0 ? order.mdrFee : mdrLive.fee
+  const net = netEstimate({ total: order.total, platformFee: order.platformFee ?? 0, mdrFee })
 
   const handlePrint = () => {
     window.print()
@@ -100,6 +106,14 @@ export function ReceiptModal({ order, onClose }: Props) {
               </span>
               <span>{formatRupiah(order.tax)}</span>
             </div>
+            {(order.platformFee ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span>
+                  Biaya layanan{(order.platformFeeBearer === 'cafe') ? ' (ditanggung kafe)' : ''}
+                </span>
+                <span>{formatRupiah(order.platformFee)}</span>
+              </div>
+            )}
             <div className="my-1 border-b border-dotted border-black/30" />
             <div className="flex justify-between text-xs font-bold">
               <span>TOTAL{order.taxBearer === 'cafe' ? ' (tanpa pajak)' : ''}</span>
@@ -108,6 +122,27 @@ export function ReceiptModal({ order, onClose }: Props) {
             <div className="flex justify-between pt-1 text-[10px] uppercase text-stone">
               <span>Metode Bayar</span>
               <span>{order.paymentMethod}</span>
+            </div>
+            {/* Rincian owner — layar saja, TIDAK ikut tercetak (keputusan produk) */}
+            <div className="print:hidden">
+              <div className="my-1 border-b border-dotted border-black/30" />
+              <p className="pb-1 text-[10px] font-bold uppercase text-stone">Rincian owner (estimasi)</p>
+              <div className="flex justify-between">
+                <span>Omset kotor</span>
+                <span>{formatRupiah(order.total)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Potongan aplikasi</span>
+                <span>-{formatRupiah(order.platformFee ?? 0)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>{mdrLive.label}</span>
+                <span>-{formatRupiah(mdrFee)}</span>
+              </div>
+              <div className="flex justify-between pt-1 text-xs font-bold">
+                <span>Pendapatan bersih (est.)</span>
+                <span>{formatRupiah(net)}</span>
+              </div>
             </div>
           </div>
 

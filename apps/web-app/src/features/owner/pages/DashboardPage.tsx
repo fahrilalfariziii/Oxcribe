@@ -11,6 +11,8 @@ import {
 import { useCafe } from '../../../mock/store'
 import { formatRupiah } from '../../../shared/lib/format'
 import { bucketizePaidOrders, filterPaidOrders } from '../../../shared/lib/sales'
+import { isFeatureOn } from '../../../shared/lib/features'
+import { estimateMdrPreview } from '../../../shared/lib/fees'
 
 const RANK_MEDAL = ['🥇', '🥈', '🥉']
 
@@ -21,13 +23,23 @@ function compactRp(v: number): string {
 }
 
 export function DashboardPage() {
-  const { orders, products } = useCafe()
+  const { orders, products, business } = useCafe()
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   const [selectedYear] = useState<number>(new Date().getFullYear())
+  // Paket Starter (analyticsFull OFF) = ringkasan angka saja, tanpa grafik & top item.
+  const fullOn = isFeatureOn(business, 'analyticsFull')
 
   const paid = useMemo(() => filterPaidOrders(orders, selectedYear), [orders, selectedYear])
   const revenue = paid.reduce((s, o) => s + o.total, 0)
   const avg = paid.length ? revenue / paid.length : 0
+  // Transparansi pendapatan: agregat fee & MDR estimasi (snapshot per order,
+  // order lama tanpa snapshot memakai estimasi live dari total).
+  const feeTotal = paid.reduce((s, o) => s + (o.platformFee ?? 0), 0)
+  const mdrTotal = paid.reduce((s, o) => {
+    const snap = o.mdrFee ?? 0
+    return s + (snap > 0 ? snap : estimateMdrPreview(o.total, o.paymentMethod).fee)
+  }, 0)
+  const netTotal = revenue - feeTotal - mdrTotal
 
   const chart = useMemo(() => bucketizePaidOrders(paid, period), [paid, period])
   const chartMax = Math.max(...chart.map((c) => c.total), 0)
@@ -83,7 +95,25 @@ export function DashboardPage() {
           </article>
         ))}
       </div>
+      {fullOn && (
+      <div className="mb-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
+        {[
+          { label: 'Potongan Aplikasi', value: formatRupiah(feeTotal), hint: 'Total platform fee self-order' },
+          { label: 'MDR Midtrans (est.)', value: formatRupiah(mdrTotal), hint: 'Estimasi tabel resmi' },
+          { label: 'Pendapatan Bersih (est.)', value: formatRupiah(netTotal), hint: 'Kotor − fee − MDR' },
+        ].map((k) => (
+          <article key={k.label} className="flex h-32 flex-col justify-between rounded-[12px] bg-[#f5f0e7] p-6 ring-1 ring-[#e4e2dd]">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.6px] text-muted">{k.label}</p>
+            <div>
+              <p className="text-[28px] font-bold tracking-tight">{k.value}</p>
+              <p className="text-sm text-stone">{k.hint}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+      )}
       <div className="grid grid-cols-12 gap-6">
+        {fullOn ? (
         <section className="col-span-12 min-h-[400px] rounded-[12px] bg-cream p-6 ring-1 ring-[#e4e2dd] xl:col-span-8">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Omset {period}</h2>
@@ -121,7 +151,14 @@ export function DashboardPage() {
             </div>
           )}
         </section>
+        ) : (
+        <section className="col-span-12 rounded-[12px] bg-cream p-6 ring-1 ring-[#e4e2dd] xl:col-span-8">
+          <h2 className="text-lg font-semibold">Grafik analitik penuh</h2>
+          <p className="mt-1 text-sm text-stone">Paket kafe Anda hanya mencakup ringkasan angka di atas. Hubungi tim sales Ordria untuk upgrade ke paket dengan analitik lengkap.</p>
+        </section>
+        )}
         <div className="col-span-12 flex flex-col gap-6 xl:col-span-4">
+          {fullOn ? (
           <section className="rounded-[12px] bg-cream p-5 ring-1 ring-[#e4e2dd]">
             <h2 className="mb-4 text-lg font-semibold">Best Selling</h2>
             {best.length === 0 ? (
@@ -151,6 +188,7 @@ export function DashboardPage() {
               </ul>
             )}
           </section>
+          ) : null}
           <section className="rounded-[12px] bg-[#f5f0e7] p-5">
             <h2 className="mb-2 text-sm font-semibold">Status Alerts</h2>
             {oos.length === 0 ? (

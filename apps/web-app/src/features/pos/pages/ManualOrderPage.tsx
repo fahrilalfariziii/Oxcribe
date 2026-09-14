@@ -81,13 +81,19 @@ export function ManualOrderPage() {
     return p.price + optionTotal
   }
 
-  // Kalkulasi Ringkasan Total — sinkron dengan placeOrder (PB1/service + bearer)
+  // Kalkulasi Ringkasan Total — sinkron dengan placeOrder (PB1/service + bearer).
+  // Service charge independen dari pajak & flag (owner bebas on/off).
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0)
-  const serviceCharge = cart.length > 0 && business.serviceChargeEnabled ? Math.round(subtotal * (business.serviceChargeRate / 100)) : 0
+  const taxFeatureOn = business.features ? business.features.taxAndFees === true : false
+  const serviceCharge = cart.length > 0 && business.serviceChargeEnabled
+    ? (business.serviceChargeMode === 'flat'
+      ? Math.max(0, Math.round(business.serviceChargeFlat))
+      : Math.round(subtotal * (Math.min(100, Math.max(0, business.serviceChargeRate)) / 100)))
+    : 0
   const taxBase = subtotal + serviceCharge
-  const rawTax = cart.length > 0 && business.taxEnabled ? Math.round(taxBase * (business.taxRate / 100)) : 0
+  const rawTax = cart.length > 0 && taxFeatureOn && business.taxEnabled ? Math.round(taxBase * (business.taxRate / 100)) : 0
   const tax = rawTax
-  const total = business.taxEnabled && business.taxBearer === 'cafe' ? subtotal + serviceCharge : subtotal + serviceCharge + tax
+  const total = taxFeatureOn && business.taxEnabled && business.taxBearer === 'cafe' ? subtotal + serviceCharge : subtotal + serviceCharge + tax
 
   // Hitung Kembalian Otomatis
   const changeAmount = useMemo(() => {
@@ -377,7 +383,7 @@ export function ManualOrderPage() {
           </div>
           {business.serviceChargeEnabled && serviceCharge > 0 && (
             <div className="flex justify-between text-sm">
-              <span>Service {business.serviceChargeRate}%</span>
+              <span>Service {business.serviceChargeMode === 'flat' ? '(flat)' : `${business.serviceChargeRate}%`}</span>
               <span>{formatRupiah(serviceCharge)}</span>
             </div>
           )}

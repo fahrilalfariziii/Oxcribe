@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react'
+import { Fragment } from 'react'
 import { useCafe } from '../../../../mock/store'
 import { formatRupiah, formatTime } from '../../../../shared/lib/format'
+import { isFeatureOn } from '../../../../shared/lib/features'
+import { estimateMdrPreview, netEstimate } from '../../../../shared/lib/fees'
 
 export function SalesHistoryPage() {
-  const { orders } = useCafe()
+  const { orders, business } = useCafe()
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [pageSize, setPageSize] = useState<number>(30)
   const [page, setPage] = useState<number>(1)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const exportOn = isFeatureOn(business, 'exportCsv')
 
   const paidOrders = useMemo(() => {
     return orders
@@ -28,14 +33,21 @@ export function SalesHistoryPage() {
   }
 
   function exportSalesCSV() {
-    const headers = ['Waktu', 'No Order', 'Items', 'Status Pembayaran', 'Total Tagihan']
-    const rows = paidOrders.map((o) => [
-      formatTime(o.createdAt),
-      `#${o.orderNumber}`,
-      `"${o.items.map((i) => `${i.quantity}x ${i.productName}`).join(', ')}"`,
-      o.paymentStatus,
-      o.total,
-    ])
+    if (!exportOn) return
+    const headers = ['Waktu', 'No Order', 'Items', 'Status Pembayaran', 'Total Tagihan', 'Biaya Layanan', 'MDR (est.)', 'Bersih (est.)']
+    const rows = paidOrders.map((o) => {
+      const mdr = (o.mdrFee ?? 0) > 0 ? o.mdrFee : estimateMdrPreview(o.total, o.paymentMethod).fee
+      return [
+        formatTime(o.createdAt),
+        `#${o.orderNumber}`,
+        `"${o.items.map((i) => `${i.quantity}x ${i.productName}`).join(', ')}"`,
+        o.paymentStatus,
+        o.total,
+        o.platformFee ?? 0,
+        mdr,
+        netEstimate({ total: o.total, platformFee: o.platformFee ?? 0, mdrFee: mdr }),
+      ]
+    })
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n')
     const encodedUri = encodeURI(csvContent)
@@ -83,6 +95,7 @@ export function SalesHistoryPage() {
             ))}
           </div>
 
+          {exportOn && (
           <button
             onClick={exportSalesCSV}
             className="flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-xs font-semibold text-white hover:bg-black/80 transition-colors"
@@ -90,6 +103,7 @@ export function SalesHistoryPage() {
             <span className="material-symbols-outlined text-[18px]">download</span>
             <span>Ekspor Transaksi</span>
           </button>
+          )}
         </div>
       </div>
 
@@ -105,8 +119,18 @@ export function SalesHistoryPage() {
             </tr>
           </thead>
           <tbody>
-            {visibleOrders.map((o) => (
-              <tr key={o.id} className="border-t border-sand hover:bg-cream/40 transition-colors">
+            {visibleOrders.map((o) => {
+              const mdrLive = estimateMdrPreview(o.total, o.paymentMethod)
+              const mdr = (o.mdrFee ?? 0) > 0 ? o.mdrFee : mdrLive.fee
+              const net = netEstimate({ total: o.total, platformFee: o.platformFee ?? 0, mdrFee: mdr })
+              const open = expandedId === o.id
+              return (
+              <Fragment key={o.id}>
+              <tr
+                onClick={() => setExpandedId(open ? null : o.id)}
+                className="cursor-pointer border-t border-sand hover:bg-cream/40 transition-colors"
+                title="Klik untuk rincian fee & pendapatan bersih"
+              >
                 <td className="px-4 py-3 text-stone">{formatTime(o.createdAt)}</td>
                 <td className="px-4 py-3 font-semibold text-black">#{o.orderNumber}</td>
                 <td className="px-4 py-3 text-stone">
@@ -119,7 +143,21 @@ export function SalesHistoryPage() {
                 </td>
                 <td className="px-4 py-3 font-semibold text-black text-right">{formatRupiah(o.total)}</td>
               </tr>
-            ))}
+              {open && (
+              <tr className="border-t border-dashed border-sand bg-cream/60">
+                <td colSpan={5} className="px-4 py-3">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
+                    <div className="flex justify-between gap-2"><span className="text-stone">Omset kotor</span><span className="font-semibold">{formatRupiah(o.total)}</span></div>
+                    <div className="flex justify-between gap-2"><span className="text-stone">Biaya layanan{(o.platformFeeBearer === 'cafe') ? ' (kafe)' : ''}</span><span className="font-semibold">-{formatRupiah(o.platformFee ?? 0)}</span></div>
+                    <div className="flex justify-between gap-2"><span className="text-stone">{mdrLive.label}</span><span className="font-semibold">-{formatRupiah(mdr)}</span></div>
+                    <div className="flex justify-between gap-2"><span className="text-stone">Bersih (est.)</span><span className="font-bold text-sage">{formatRupiah(net)}</span></div>
+                  </div>
+                </td>
+              </tr>
+              )}
+              </Fragment>
+              )
+            })}
 
             {paidOrders.length === 0 && (
               <tr>

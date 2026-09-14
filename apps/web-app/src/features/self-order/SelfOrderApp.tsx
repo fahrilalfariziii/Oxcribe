@@ -363,6 +363,21 @@ export function SelfOrderApp() {
     )
   }
 
+  // Kill-switch selfOrder: paket tanpa self-order (Starter) tidak bisa pesan via QR.
+  // Fail-open bila key hilang (tenant lama pra-kanon tetap bisa pesan).
+  const selfOrderOn = business.features ? business.features.selfOrder !== false : true
+  if (!selfOrderOn) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-paper px-6 text-center">
+        <div className="max-w-sm">
+          <p className="font-display text-2xl font-bold">{business.name}</p>
+          <p className="mt-2 text-sm text-soil">Pemesanan via QR tidak tersedia pada paket kafe ini. Silakan pesan langsung di kasir.</p>
+          <p className="mt-1 text-xs text-soil">Meja {table.tableNumber}</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen w-full justify-center bg-paper sm:bg-[#d0ccc8] sm:py-6">
       <div className="relative flex h-full min-h-screen w-full max-w-md flex-col overflow-hidden shadow-2xl sm:min-h-[844px] sm:rounded-[24px]" style={{ background: theme.pageBg }}>

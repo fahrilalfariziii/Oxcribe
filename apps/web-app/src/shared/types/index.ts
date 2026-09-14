@@ -88,6 +88,19 @@ export interface Business {
   taxBearer: TaxBearer
   serviceChargeEnabled: boolean
   serviceChargeRate: number
+  // Service charge independen dari pajak: percent (% subtotal) / flat (Rp per transaksi).
+  serviceChargeMode: 'percent' | 'flat'
+  serviceChargeFlat: number
+  // Platform fee self-order non-tunai (per kafe, diatur Platform Admin).
+  // Harga menu diasumsikan sudah include pajak/service -> basis fee = subtotal.
+  platformFeeEnabled: boolean
+  platformFeeMode: 'percent' | 'flat'
+  platformFeePercent: number
+  platformFeeFlat: number
+  platformFeeBearer: TaxBearer // 'customer' = di atas total | 'cafe' = ditanggung kafe
+  // Flag fitur efektif dari backend (plans + overrides).
+  // taxAndFees=false (default) = menu Pajak & Biaya disembunyikan & total = subtotal murni.
+  features?: { taxAndFees?: boolean } & Record<string, boolean | undefined>
   soundEnabled: boolean
   openingCash: number
   closingCash: number | null
@@ -194,6 +207,10 @@ export interface Order {
   tax: number
   taxLabel: TaxLabel
   taxBearer: TaxBearer
+  // Snapshot platform fee + estimasi MDR (0 untuk cash & manual order).
+  platformFee: number
+  platformFeeBearer: TaxBearer
+  mdrFee: number
   total: number
   createdAt: string
   items: OrderItem[]

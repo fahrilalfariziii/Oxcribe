@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useCafe } from '../../../mock/store'
+import { isFeatureOn } from '../../../shared/lib/features'
 
 interface MenuItem {
   to?: string
@@ -58,6 +59,21 @@ const NAV_ITEMS: MenuItem[] = [
 export function OwnerSidebar() {
   const { business, logout } = useCafe()
   const navigate = useNavigate()
+  // Full kill-switch (kecuali offlineSync): tiap menu mengikuti flag efektif.
+  // taxAndFees fail-closed (default OFF); flag lain fail-open bila key hilang.
+  // Link Pajak & Biaya ikut tampil bila platform fee menyala (section fee ada di halaman itu).
+  const showTax = isFeatureOn(business, 'taxAndFees') || business.platformFeeEnabled === true
+  const showTables = isFeatureOn(business, 'tableManagement')
+  const showPerforma = isFeatureOn(business, 'performanceItem') && isFeatureOn(business, 'analyticsFull')
+  const navItems = NAV_ITEMS.map((item) => {
+    if (item.label === 'Sales' && item.children) {
+      return { ...item, children: item.children.filter((sub) => (sub.to === '/backoffice/sales/performa' ? showPerforma : true)) }
+    }
+    if (item.label === 'Settings' && item.children) {
+      return { ...item, children: item.children.filter((sub) => (sub.to === '/backoffice/settings/tax' ? showTax : true)) }
+    }
+    return item
+  }).filter((item) => (item.to === '/backoffice/tables' ? showTables : true))
 
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [openAccordion, setOpenAccordion] = useState<string | null>('Sales')
@@ -116,7 +132,7 @@ export function OwnerSidebar() {
         </div>
         {/* Accordion Menu Navigation */}
         <nav className="space-y-1.5">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0
             const isOpen = openAccordion === item.label
 

@@ -1,16 +1,18 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useCafe } from '../../../mock/store'
+import { isFeatureOn } from '../../../shared/lib/features'
 
 const NAV = [
-  { to: '/frontoffice/orders', label: 'Orders', icon: 'receipt_long' },
-  { to: '/frontoffice/catalog', label: 'Catalog', icon: 'menu_book' },
-  { to: '/frontoffice/inventory', label: 'Inventory', icon: 'inventory_2' },
-  { to: '/frontoffice/settings', label: 'Settings', icon: 'settings' },
+  { to: '/frontoffice/orders', label: 'Orders', icon: 'receipt_long', flag: null as string | null },
+  { to: '/frontoffice/catalog', label: 'Catalog', icon: 'menu_book', flag: null as string | null },
+  { to: '/frontoffice/inventory', label: 'Inventory', icon: 'inventory_2', flag: 'inventory' as string | null },
+  { to: '/frontoffice/settings', label: 'Settings', icon: 'settings', flag: null as string | null },
 ]
 
 export function PosHeader() {
   const {connection, pendingSyncCount, business, session, syncNow } = useCafe()
   const navigate = useNavigate()
+  const visibleNav = NAV.filter((item) => (item.flag ? isFeatureOn(business, item.flag) : true))
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-[#c4c7c7] px-6">
@@ -64,7 +66,7 @@ export function PosHeader() {
 
       {/* Navigation Icons */}
       <nav className="flex items-center gap-4">
-        {NAV.map((item) => (
+        {visibleNav.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

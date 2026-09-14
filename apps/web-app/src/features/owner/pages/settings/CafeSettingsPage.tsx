@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useCafe } from '../../../../mock/store'
 import { processUploadImage } from '../../../../shared/lib/image'
 import { Button, Field, TextInput } from '../../../../shared/components/ui'
+import { canUseTheme } from '../../../../shared/lib/features'
 import { ThemeSettingsPage } from './ThemeSettingsPage'
 
 type BusinessTab = 'profil' | 'tema'
@@ -9,6 +10,12 @@ type BusinessTab = 'profil' | 'tema'
 export function CafeSettingsPage() {
   const { business, saveBusinessSettings } = useCafe()
   const [activeTab, setActiveTab] = useState<BusinessTab>('profil')
+  // Kill-switch tema: tab disembunyikan bila preset & custom dua-duanya OFF.
+  const themeOn = canUseTheme(business)
+  const tabs = ([
+    { id: 'profil', label: 'Profil' },
+    ...(themeOn ? [{ id: 'tema', label: 'Tema & Tampilan' } as const] : []),
+  ] as const)
 
   // State Form Profile Bisnis
   const [cafeForm, setCafeForm] = useState({
@@ -98,12 +105,9 @@ export function CafeSettingsPage() {
         <p className="text-stone">Kelola identitas bisnis yang ditampilkan pada cetakan resi, QR Code, dan header aplikasi.</p>
       </div>
 
-      {/* Kategori: Profil identitas vs Tema & tampilan */}
+      {/* Kategori: Profil identitas vs Tema & tampilan (tema disembunyikan bila flag OFF) */}
       <div className="flex max-w-2xl gap-2 rounded-lg border border-[#c4c7c7] bg-cream p-1.5">
-        {([
-          { id: 'profil', label: 'Profil' },
-          { id: 'tema', label: 'Tema & Tampilan' },
-        ] as const).map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -117,7 +121,7 @@ export function CafeSettingsPage() {
         ))}
       </div>
 
-      {activeTab === 'tema' ? (
+      {activeTab === 'tema' && themeOn ? (
         <ThemeSettingsPage embedded />
       ) : (
       <form onSubmit={handleSaveCafeProfile} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-5">

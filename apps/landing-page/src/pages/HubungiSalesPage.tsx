@@ -9,9 +9,9 @@ const OUTLET_SCALES = ['1 Outlet (Single Bar)', '2 - 5 Outlet (Growing Chain)', 
 const NEED_CATEGORIES = ['Paket Basic', 'Paket Pro', 'Paket Enterprise', 'Demo Personal', 'Jasa Website']
 
 const WA_TEXT_POS =
-  'Halo Tim Sales Ordria, saya tertarik konsultasi sistem POS dan self-ordering untuk kafe kami.'
+  'Halo Tim Sales Oxcribe, saya tertarik konsultasi sistem POS dan self-ordering untuk kafe kami.'
 const WA_TEXT_JASA =
-  'Halo Tim Sales Ordria, saya tertarik konsultasi Jasa Website Ordria untuk bisnis kami.'
+  'Halo Tim Sales Oxcribe, saya tertarik konsultasi Jasa Website Oxcribe untuk bisnis kami.'
 
 type FormStatus = 'idle' | 'sending' | 'done' | 'error'
 
@@ -59,14 +59,14 @@ export function HubungiSalesPage() {
         <section className="relative w-full overflow-hidden py-10">
           <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-secondary-fixed/30 blur-3xl" />
           <div className="pointer-events-none absolute -left-20 top-1/2 h-80 w-80 rounded-full bg-primary-fixed/20 blur-3xl" />
-          <div className="relative z-10 mx-auto max-w-[90rem] px-4 sm:px-6">
+          <div className="relative z-10 mx-auto max-w-[90rem] px-4 sm:px-6 lg:px-8">
             <div className="mb-10 max-w-3xl">
-              <h1 className="font-display text-5xl font-bold leading-tight tracking-tight text-primary lg:text-6xl lg:leading-[1.1]">
+              <h1 className="font-display text-balance text-[clamp(1.9rem,6.5vw,3.75rem)] font-bold leading-[1.12] tracking-tight text-primary">
                 {isJasa
-                  ? 'Konsultasi Jasa Website untuk Bisnis Anda Bersama Tim Sales Ordria'
-                  : 'Konsultasi Kebutuhan Kafe Anda Bersama Tim Sales Ordria'}
+                  ? 'Konsultasi Jasa Website untuk Bisnis Anda Bersama Tim Sales Oxcribe'
+                  : 'Konsultasi Kebutuhan Kafe Anda Bersama Tim Sales Oxcribe'}
               </h1>
-              <p className="mt-4 text-xl leading-relaxed text-on-surface-variant">
+              <p className="mt-4 text-base leading-relaxed text-on-surface-variant sm:text-lg lg:text-xl">
                 {isJasa
                   ? 'Ceritakan kebutuhan website bisnis Anda — company profile, landing page, e-commerce, atau web app custom. Konsultasi gratis, penawaran transparan.'
                   : 'Diskusikan implementasi sistem POS, rencana multi-outlet, kustomisasi paket Enterprise, integrasi hardware kasir, atau demo sistem langsung bersama tim kami.'}
@@ -75,8 +75,8 @@ export function HubungiSalesPage() {
 
             <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
               {/* WA CARD */}
-              <div className="flex flex-col gap-6 lg:col-span-5">
-                <div className="relative overflow-hidden rounded-xl bg-surface-container-lowest p-6 shadow-md transition-all hover:shadow-xl">
+              <div className="flex flex-col gap-6 lg:col-span-5 lg:sticky lg:top-24">
+                <div className="relative overflow-hidden rounded-xl bg-surface-container-lowest p-5 shadow-md transition-all hover:shadow-xl sm:p-6">
                   <div className="pointer-events-none absolute right-0 top-0 h-32 w-32 rounded-bl-full bg-secondary/10" />
                   <div className="mb-4 flex items-center justify-between">
                     <span className="inline-flex items-center gap-1.5 rounded bg-secondary-fixed px-2.5 py-1 text-[11px] font-bold text-on-secondary-fixed">
@@ -117,7 +117,7 @@ export function HubungiSalesPage() {
 
               {/* EMAIL FORM */}
               <div className="lg:col-span-7">
-                <div className="rounded-xl bg-surface-container-lowest p-6 shadow-md sm:p-10">
+                <div className="rounded-xl bg-surface-container-lowest p-5 shadow-md sm:p-10">
                   <div className="mb-6 flex flex-col justify-between gap-3 border-b border-surface-container-high pb-6 sm:flex-row sm:items-center">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary-fixed text-primary">
@@ -249,7 +249,7 @@ export function HubungiSalesPage() {
                         {NEED_CATEGORIES.map((c) => (
                           <label
                             key={c}
-                            className="relative flex cursor-pointer items-center justify-center rounded-lg bg-surface p-2.5 text-center text-on-surface shadow-sm transition-colors hover:bg-surface-container has-[:checked]:bg-primary has-[:checked]:text-on-primary"
+                            className="relative flex min-h-12 cursor-pointer items-center justify-center rounded-lg bg-surface p-2.5 text-center text-on-surface shadow-sm transition-colors hover:bg-surface-container has-[:checked]:bg-primary has-[:checked]:text-on-primary"
                           >
                             <input
                               type="radio"

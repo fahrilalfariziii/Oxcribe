@@ -8,11 +8,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 function getCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN;
   if (!raw) {
-    if (process.env.NODE_ENV === "production") {
-      // Gunakan fallback '*' agar serverless function tidak melempar Unhandled Error/Crash saat env belum diset
-      console.warn("⚠️ CORS_ORIGIN belum di-set di production. Menggunakan fallback '*'.");
-      return ["*"];
-    }
+    if (process.env.NODE_ENV === "production") throw new Error("CORS_ORIGIN wajib di-set di production (.env)");
     return ["http://localhost:5173"];
   }
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
@@ -21,8 +17,7 @@ function getCorsOrigins(): string[] {
 export function createApp() {
   const app = express();
   // Trust proxy: development pakai 1 hop (ngrok), production pakai 1 hop yang aman & terbaik
-  // Di prod, X-Forwarded-For hanya dipercaya dari 1 proxy terdekat (Nginx/Railway/Vercel) — tidak semua hop.
-  const isProd = process.env.NODE_ENV === 'production';
+  // Di prod, X-Forwarded-For hanya dipercaya dari 1 proxy terdekat (Nginx/Railway) — tidak semua hop.
   app.set('trust proxy', 1);
 
   // Security headers standar
@@ -50,20 +45,12 @@ export function createApp() {
   // Default Express 100kb menolaknya dengan PayloadTooLargeError.
   app.use(express.json({ limit: "5mb" }));
 
-  app.get("/", (_req, res) => {
-    res.json({
-      status: "ok",
-      message: "Ordria Backend API Service Running",
-      documentation: "/api",
-    });
-  });
-
   app.get("/health", (_req, res) => {
     res.json({
       status: "ok",
       service: "ordria-backend",
       time: new Date().toISOString(),
-      build: "2026-09-12-vercel-serverless-fix",
+      build: "2026-09-12-no-vercel",
     });
   });
 
@@ -74,7 +61,3 @@ export function createApp() {
 
   return app;
 }
-
-// Inisialisasi app dan sediakan DEFAULT EXPORT untuk Vercel Serverless Function Engine
-const app = createApp();
-export default app;

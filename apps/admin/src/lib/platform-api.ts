@@ -164,6 +164,20 @@ export const platformApi = {
     }),
   clearOverrides: (id: number | string) =>
     request<unknown>(`/api/platform/tenants/${id}/feature-overrides`, { method: 'DELETE' }),
+  updatePlatformFee: (
+    id: number | string,
+    payload: {
+      platformFeeEnabled?: boolean
+      platformFeeMode?: 'percent' | 'flat'
+      platformFeePercent?: number
+      platformFeeFlat?: number
+      platformFeeBearer?: 'customer' | 'cafe'
+    },
+  ) =>
+    request<{ status: string; platformFee: Record<string, unknown> }>(
+      `/api/platform/tenants/${id}/platform-fee`,
+      { method: 'PATCH', body: JSON.stringify(payload) },
+    ),
 
   getPlans: () => request<{ plans: PlanRow[] }>('/api/platform/plans'),
   updatePlan: (code: string, payload: Record<string, unknown>) =>

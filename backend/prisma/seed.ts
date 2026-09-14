@@ -17,6 +17,8 @@ async function main() {
   );
 
   // ---- Business ----
+  // Pajak & Biaya default OFF (flag taxAndFees=false semua paket):
+  // total murni = subtotal, tanpa tambahan pajak/service.
   const business = await prisma.business.create({
     data: {
       name: "Bean & Brew",
@@ -24,12 +26,12 @@ async function main() {
       address: "Jl. Senopati No. 12, Jakarta Selatan",
       phone: "021-555-0192",
       email: "hello@beanbrew.id",
-      taxEnabled: true,
+      taxEnabled: false,
       taxLabel: "PB1",
-      taxRate: 10, // persen
+      taxRate: 0, // persen
       taxBearer: "customer",
-      serviceChargeEnabled: true,
-      serviceChargeRate: 5, // persen
+      serviceChargeEnabled: false,
+      serviceChargeRate: 0, // persen
       soundEnabled: true,
       openingCash: 0,
       enabledPaymentMethods: ["cash", "qris", "bank_transfer"],
@@ -243,6 +245,7 @@ async function main() {
   });
 
   // ---- 2 contoh order (biar endpoint /orders & /analytics langsung ada datanya) ----
+  // Pajak & Biaya OFF: serviceCharge=0, tax=0, total=subtotal murni.
   const order1 = await prisma.order.create({
     data: {
       businessId: business.id,
@@ -255,11 +258,11 @@ async function main() {
       paymentMethod: "qris",
       paymentStatus: "paid",
       subtotal: 90000,
-      serviceCharge: 4500,
-      tax: 9450,
+      serviceCharge: 0,
+      tax: 0,
       taxLabel: "PB1",
       taxBearer: "customer",
-      total: 103950,
+      total: 90000,
       items: {
         createMany: {
           data: [
@@ -286,7 +289,7 @@ async function main() {
       },
       statusLogs: { createMany: { data: [{ status: "diterima" }, { status: "diproses" }] } },
       payments: {
-        create: { businessId: business.id, method: "qris", status: "paid", amount: 103950, paidAt: new Date() },
+        create: { businessId: business.id, method: "qris", status: "paid", amount: 90000, paidAt: new Date() },
       },
     },
   });
@@ -303,11 +306,11 @@ async function main() {
       paymentMethod: "cash",
       paymentStatus: "pending",
       subtotal: 30000,
-      serviceCharge: 1500,
-      tax: 3150,
+      serviceCharge: 0,
+      tax: 0,
       taxLabel: "PB1",
       taxBearer: "customer",
-      total: 34650,
+      total: 30000,
       items: {
         create: {
           productId: doubleEspresso.id,
@@ -320,7 +323,7 @@ async function main() {
         },
       },
       statusLogs: { create: { status: "diterima" } },
-      payments: { create: { businessId: business.id, method: "cash", status: "pending", amount: 34650 } },
+      payments: { create: { businessId: business.id, method: "cash", status: "pending", amount: 30000 } },
     },
   });
 

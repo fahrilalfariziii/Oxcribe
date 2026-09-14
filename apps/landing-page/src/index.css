@@ -66,6 +66,34 @@ body {
   color: var(--color-on-surface);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+/* Media tidak boleh melebar melebihi viewport kecil */
+img,
+svg,
+video {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Fokus keyboard yang jelas untuk drawer & FAQ */
+:focus-visible {
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+
+/* Hormati pengguna yang mematikan animasi */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .font-display {

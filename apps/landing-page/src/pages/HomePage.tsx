@@ -25,7 +25,7 @@ export function HomePage() {
       <Headbar />
       <main>
         {/* HERO */}
-        <section className="mx-auto w-full max-w-[90rem] overflow-hidden px-4 pb-14 pt-8 sm:px-6 lg:pb-20 lg:pt-14">
+        <section className="mx-auto w-full max-w-[90rem] overflow-hidden px-4 pb-14 pt-8 sm:px-6 lg:px-8 lg:pb-20 lg:pt-14">
           <div className="relative mx-auto flex max-w-6xl flex-col items-center py-6 text-center sm:py-8">
             <div className="pointer-events-none absolute inset-0 -z-10 scale-95 rounded-3xl bg-gradient-to-tr from-secondary-container/20 via-primary-fixed/30 to-transparent blur-3xl" />
             {home.badge && (
@@ -34,11 +34,11 @@ export function HomePage() {
                 {home.badge}
               </div>
             )}
-            <h1 className="font-display mb-5 max-w-4xl text-5xl font-bold leading-tight tracking-tight text-on-surface sm:text-6xl sm:leading-tight lg:text-[68px] lg:leading-[1.08]">
+            <h1 className="font-display mb-5 max-w-4xl text-[clamp(2rem,7.5vw,4.25rem)] font-bold leading-[1.1] tracking-tight text-on-surface">
               {home.title}
             </h1>
             {home.subtitle && (
-              <p className="mb-8 max-w-2xl text-lg leading-relaxed text-on-surface-variant lg:text-xl">
+              <p className="mb-8 max-w-2xl text-base leading-relaxed text-on-surface-variant sm:text-lg lg:text-xl">
                 {home.subtitle}
               </p>
             )}
@@ -46,12 +46,12 @@ export function HomePage() {
         </section>
 
         {/* DUA PRODUK */}
-        <section className="mx-auto w-full max-w-[90rem] px-4 pb-20 sm:px-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <section className="mx-auto w-full max-w-[90rem] px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2">
             {home.products.map((p) => (
               <div
                 key={p.href}
-                className="flex flex-col rounded-2xl border border-outline-variant/40 bg-surface-container-lowest p-8 shadow-sm transition-shadow hover:shadow-md"
+                className="flex flex-col rounded-2xl border border-outline-variant/40 bg-surface-container-lowest p-6 shadow-sm transition-shadow hover:shadow-md sm:p-8"
               >
                 <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-secondary-fixed/60">
                   <span className="material-symbols-outlined text-[24px] text-on-secondary-fixed">{p.icon}</span>
@@ -74,12 +74,12 @@ export function HomePage() {
 
         {/* CTA GABUNGAN */}
         {(home.cta.title || home.cta.subtitle) && (
-          <section className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
-            <div className="relative overflow-hidden rounded-3xl bg-primary-container p-8 text-on-primary shadow-2xl sm:p-14">
+          <section className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6 lg:px-8">
+            <div className="relative overflow-hidden rounded-3xl bg-primary-container p-6 text-on-primary shadow-2xl sm:p-14">
               <div className="pointer-events-none absolute -bottom-20 -right-20 h-80 w-80 rounded-full bg-secondary-container/20 blur-3xl" />
               <div className="relative z-10 max-w-3xl">
                 {home.cta.title && (
-                  <h2 className="font-display mb-4 text-3xl font-bold tracking-tight text-on-primary sm:text-[40px] sm:leading-tight">
+                  <h2 className="font-display mb-4 text-[clamp(1.6rem,5vw,2.5rem)] font-bold leading-tight tracking-tight text-on-primary">
                     {home.cta.title}
                   </h2>
                 )}
@@ -90,7 +90,7 @@ export function HomePage() {
                 )}
                 <Link
                   to="/hubungi-sales"
-                  className="inline-flex items-center gap-2 rounded-xl bg-secondary px-8 py-4 text-base font-semibold text-on-secondary shadow-md transition-all hover:brightness-95 active:scale-95"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-secondary px-8 py-4 text-base font-semibold text-on-secondary shadow-md transition-all hover:brightness-95 active:scale-95 sm:w-auto"
                 >
                   Hubungi Sales
                   <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
@@ -106,8 +106,8 @@ export function HomePage() {
               <span className="mb-2 block text-[13px] font-bold uppercase tracking-widest text-secondary">
                 Tanya Jawab
               </span>
-              <h2 className="font-display text-3xl font-bold tracking-tight text-on-surface lg:text-4xl">
-                Seputar Ordria
+              <h2 className="font-display text-[clamp(1.6rem,5vw,2.25rem)] font-bold leading-tight tracking-tight text-on-surface">
+                Seputar Oxcribe
               </h2>
             </div>
             <div className="space-y-4">

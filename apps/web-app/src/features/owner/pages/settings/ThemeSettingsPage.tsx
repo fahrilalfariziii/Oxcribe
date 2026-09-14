@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useCafe } from '../../../../mock/store'
 import { processUploadImage } from '../../../../shared/lib/image'
 import { Button, Field, TextInput } from '../../../../shared/components/ui'
+import { isFeatureOn } from '../../../../shared/lib/features'
 import type { BusinessTheme } from '../../../../shared/types'
 import { DEFAULT_THEME, THEME_PRESETS, normalizeTheme } from '../../../../shared/types'
 import { IMG } from '../../../../mock/data'
@@ -14,6 +15,9 @@ const TITLE_FONTS: { id: BusinessTheme['titleFont']; label: string; className: s
 
 export function ThemeSettingsPage({ embedded = false }: { embedded?: boolean }) {
   const { business, saveBusinessSettings } = useCafe()
+  // Kill-switch tema: preset sekali-klik butuh themePreset, kustom penuh butuh themeCustom.
+  const presetOn = isFeatureOn(business, 'themePreset')
+  const customOn = isFeatureOn(business, 'themeCustom')
   const [draft, setDraft] = useState<Required<BusinessTheme>>(() => normalizeTheme(business.theme))
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -110,7 +114,8 @@ export function ThemeSettingsPage({ embedded = false }: { embedded?: boolean }) 
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
         <div className="space-y-5 rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs">
-          {/* Preset */}
+          {/* Preset (butuh themePreset) */}
+          {presetOn && (
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-stone">Preset sekali klik</p>
             <div className="flex flex-wrap gap-2">
@@ -131,7 +136,15 @@ export function ThemeSettingsPage({ embedded = false }: { embedded?: boolean }) 
               ))}
             </div>
           </div>
+          )}
 
+          {!presetOn && !customOn && (
+            <p className="text-sm text-stone">Fitur tema tidak termasuk paket kafe Anda. Hubungi tim sales Ordria untuk upgrade.</p>
+          )}
+
+          {/* Warna + header + font (kustom penuh, butuh themeCustom) */}
+          {customOn && (
+          <>
           {/* Warna */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {([
@@ -229,12 +242,20 @@ export function ThemeSettingsPage({ embedded = false }: { embedded?: boolean }) 
             </div>
           </div>
 
+          {!customOn && presetOn && (
+            <p className="text-xs text-stone">Kustom penuh (warna, gambar, font) hanya tersedia di paket Enterprise. Preset di atas tetap bisa dipakai & disimpan.</p>
+          )}
+          </>
+          )}
+
+          {(presetOn || customOn) && (
           <div className="flex gap-2 border-t border-sand pt-4">
             <Button variant="outline" className="flex-1" onClick={handleReset} disabled={saving}>Reset Default</Button>
             <Button className="flex-1" onClick={handleSave} disabled={saving}>
               {saving ? 'Menyimpan…' : 'Simpan Tema'}
             </Button>
           </div>
+          )}
         </div>
 
         {/* Preview HP live */}

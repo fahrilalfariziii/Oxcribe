@@ -97,7 +97,7 @@ if (typeof window !== 'undefined') {
 export const api = {
   // Public — no auth, no credentials
   resolveTable: (qrToken: string) =>
-    request<{ table: { id: number; tableNumber: string; area?: string; qrConfig?: unknown }; business: { id: number; name: string; tagline?: string; logoUrl?: string; taxEnabled: boolean; taxLabel: string; taxRate: string | number; taxBearer: string; serviceChargeEnabled: boolean; serviceChargeRate: string | number; enabledPaymentMethods: string[]; paymentSettings: Record<string, unknown>; midtransMode: string; hasMidtransCustomKey: boolean; theme?: unknown } }>(
+    request<{ table: { id: number; tableNumber: string; area?: string; qrConfig?: unknown }; business: { id: number; name: string; tagline?: string; logoUrl?: string; taxEnabled: boolean; taxLabel: string; taxRate: string | number; taxBearer: string; serviceChargeEnabled: boolean; serviceChargeRate: string | number; serviceChargeMode: string; serviceChargeFlat: string | number; platformFeeEnabled: boolean; platformFeeMode: string; platformFeePercent: string | number; platformFeeFlat: string | number; platformFeeBearer: string; enabledPaymentMethods: string[]; paymentSettings: Record<string, unknown>; midtransMode: string; hasMidtransCustomKey: boolean; theme?: unknown; features?: Record<string, boolean> } }>(
       `/api/public/tables/${qrToken}`,
     ),
   getCatalog: (businessId: number) =>

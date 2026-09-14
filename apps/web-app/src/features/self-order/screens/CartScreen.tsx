@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CartItem, PaymentMethod } from "../../../shared/types";
 import { formatRupiah } from "../../../shared/lib/format";
+import { calcPlatformFeePreview, platformFeeLabel } from "../../../shared/lib/fees";
 import { Button } from "../../../shared/components/ui";
 import {IconBack, IconMinus, IconPlus,} from "../../../shared/components/icons";
 import { useCafe } from "../../../mock/store";
@@ -62,10 +63,19 @@ export function CartScreen({
     if (payMethod === 'bank_transfer' && !effectiveAllowed.includes(selectedBank) && visibleBanks.length > 0) onSelectBank(visibleBanks[0].id)
   }, [effectiveAllowed.join(','), payMethod])
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-  const serviceCharge = cart.length > 0 && business.serviceChargeEnabled ? Math.round(subtotal * (business.serviceChargeRate / 100)) : 0
+  const taxFeatureOn = business.features ? business.features.taxAndFees === true : false
+  // Service charge independen dari pajak & flag (owner bebas on/off).
+  const serviceCharge = cart.length > 0 && business.serviceChargeEnabled
+    ? (business.serviceChargeMode === 'flat'
+      ? Math.max(0, Math.round(business.serviceChargeFlat))
+      : Math.round(subtotal * (Math.min(100, Math.max(0, business.serviceChargeRate)) / 100)))
+    : 0
   const taxBase = subtotal + serviceCharge
-  const tax = cart.length > 0 && business.taxEnabled ? Math.round(taxBase * (business.taxRate / 100)) : 0
-  const total = business.taxEnabled && business.taxBearer === 'cafe' ? subtotal + serviceCharge : subtotal + serviceCharge + tax
+  const tax = cart.length > 0 && taxFeatureOn && business.taxEnabled ? Math.round(taxBase * (business.taxRate / 100)) : 0
+  // Platform fee: khusus self-order non-tunai (cash & manual selalu 0).
+  const platformFee = cart.length > 0 ? calcPlatformFeePreview(subtotal, business, 'self_order', payMethod) : 0
+  const total = (taxFeatureOn && business.taxEnabled && business.taxBearer === 'cafe' ? subtotal + serviceCharge : subtotal + serviceCharge + tax)
+    + (business.platformFeeBearer === 'cafe' ? 0 : platformFee)
   const handleCheckout = () => {
     // Validasi: Cek jika nama kosong atau hanya berisi spasi
     if (!customerName.trim()) {
@@ -256,24 +266,31 @@ export function CartScreen({
               Ringkasan Pesanan
             </h2>
             <div className="flex justify-between py-1 text-soil">
-              <span>Subtotal ({cart.reduce((acc, ci) => acc + ci.quantity, 0)} item)</span>
+              <span>Sub total ({cart.reduce((acc, ci) => acc + ci.quantity, 0)} item)</span>
               <span className="text-ink">{formatRupiah(subtotal)}</span>
             </div>
             {serviceCharge > 0 && (
               <div className="flex justify-between py-1 text-soil">
-                <span>Service {business.serviceChargeRate}%</span>
+                <span>Service {business.serviceChargeMode === 'flat' ? '(flat)' : `(${business.serviceChargeRate}%)`}</span>
                 <span className="text-ink">{formatRupiah(serviceCharge)}</span>
               </div>
             )}
-            {business.taxEnabled && tax > 0 && (
+            {/* Rincian pajak/fee hanya bila ditanggung pelanggan; bila ditanggung kafe disembunyikan total. */}
+            {business.taxEnabled && tax > 0 && business.taxBearer !== 'cafe' && (
               <div className="flex justify-between py-1 text-soil">
                 <span>
-                  {business.taxLabel} {business.taxRate}% {business.taxBearer === 'cafe' ? '(ditanggung kafe)' : ''}
+                  {business.taxLabel} {business.taxRate}%
                 </span>
                 <span className="text-ink">{formatRupiah(tax)}</span>
               </div>
             )}
-            {!business.taxEnabled && <div className="flex justify-between py-1 text-soil"><span>Pajak</span><span className="text-ink">Rp0 (nonaktif)</span></div>}
+            {/* {!business.taxEnabled && <div className="flex justify-between py-1 text-soil"><span>Pajak</span><span className="text-ink">Rp0 (nonaktif)</span></div>} */}
+            {platformFee > 0 && business.platformFeeBearer !== 'cafe' && (
+              <div className="flex justify-between py-1 text-soil">
+                <span>{platformFeeLabel(business, formatRupiah)}</span>
+                <span className="text-ink">{formatRupiah(platformFee)}</span>
+              </div>
+            )}
             <div className="my-2 h-px bg-clay/50" />
             <div className="flex justify-between py-2">
               <span className="font-display text-2xl font-bold">Total</span>

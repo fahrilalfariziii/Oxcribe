@@ -95,13 +95,14 @@ export type MidtransItemDetail = { id: string; price: number; quantity: number; 
 // Bangun item_details Midtrans dari order Prisma.
 // - id traceable ke productId (unik per baris: p<productId>[-n] untuk varian ganda).
 // - name = productName (+optionsLabel) dipotong 50 char (limit Midtrans).
-// - SERVICE & TAX sebagai line item terpisah agar sum(price*qty) == gross_amount.
+// - SERVICE, TAX & PLATFORM_FEE sebagai line item terpisah agar sum(price*qty) == gross_amount.
 // - customer_details cukup first_name (sesuai konfirmasi).
 export function buildMidtransItemDetails(order: {
   items: Array<{ productId: number; productName: string; price: unknown; quantity: number; optionsLabel?: string | null }>;
   serviceCharge: unknown;
   tax: unknown;
   taxLabel?: string | null;
+  platformFee?: unknown;
 }): MidtransItemDetail[] {
   const seen = new Map<number, number>();
   const items: MidtransItemDetail[] = (order.items || []).map((i) => {
@@ -125,6 +126,10 @@ export function buildMidtransItemDetails(order: {
   if (tax > 0) {
     const label = String(order.taxLabel || "Pajak").slice(0, 50);
     items.push({ id: "TAX", price: tax, quantity: 1, name: label });
+  }
+  const platformFee = Math.round(Number(order.platformFee) || 0);
+  if (platformFee > 0) {
+    items.push({ id: "PLATFORM_FEE", price: platformFee, quantity: 1, name: "Biaya Layanan Aplikasi" });
   }
   return items.filter((i) => i.price >= 0 && i.quantity >= 1 && i.name.length > 0);
 }

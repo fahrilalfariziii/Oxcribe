@@ -132,6 +132,7 @@ ordersRouter.post(
               serviceCharge: order.serviceCharge,
               tax: order.tax,
               taxLabel: order.taxLabel,
+              platformFee: (order as unknown as { platformFee?: unknown }).platformFee ?? 0,
             }),
           });
           if (charge) {

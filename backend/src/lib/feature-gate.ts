@@ -4,13 +4,21 @@ import { AppError } from "./errors";
 import { PLANS as STATIC_PLANS } from "./plans";
 
 // Flag fitur sesuai PRD SaaS §3 (kunci di plans.feature_flags).
+// Kanon full kill-switch (offlineSync disengaja TIDAK di-gate: belum ada endpoint /sync khusus).
 export const FEATURES = {
   SELF_ORDER: "selfOrder",
   TABLE_MANAGEMENT: "tableManagement",
   INVENTORY: "inventory",
   OFFLINE_SYNC: "offlineSync",
+  ANALYTICS_FULL: "analyticsFull",
+  SALES_TYPE: "salesType",
+  PERFORMANCE_ITEM: "performanceItem",
+  EXPORT_CSV: "exportCsv",
   THEME_PRESET: "themePreset",
   THEME_CUSTOM: "themeCustom",
+  // Pajak & Biaya (tax + service charge). OFF = total murni subtotal.
+  // Dikontrol Platform Admin via plans.feature_flags + featureOverrides.
+  TAX_AND_FEES: "taxAndFees",
 } as const;
 
 export type ResolvedFeatures = {
@@ -59,14 +67,28 @@ function deny(flag: string) {
 }
 
 /**
+ * Cek flag efektif dengan semantik fail-open/closed yang disepakati:
+ * - taxAndFees: fail-closed (hilang/undefined = OFF) agar total murni default.
+ * - flag lain: fail-open (hilang/undefined = ON) agar tenant lama yang baris
+ *   plans-nya belum punya key baru tidak tiba-tiba terkunci sebelum backfill.
+ */
+export function isFeatureOn(flags: Record<string, boolean>, flag: string): boolean {
+  if (flag === FEATURES.TAX_AND_FEES) return flags[flag] === true;
+  return flags[flag] !== false;
+}
+
+/**
  * Gate untuk router staff (setelah requireAuth): req.auth.businessId wajib punya flag.
+ * Memakai isFeatureOn agar konsisten dengan semantik fail-open/closed.
+ * Pola Express idiomatis (Context7 /expressjs/express): middleware reusable yang
+ * meneruskan 403 via next() ke centralized error handler.
  */
 export function requireFeature(flag: string) {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
       if (!req.auth) return next(AppError.unauthorized());
       const { flags } = await getBusinessFeatures(req.auth.businessId);
-      if (flags[flag] !== true) return next(deny(flag));
+      if (!isFeatureOn(flags, flag)) return next(deny(flag));
       return next();
     } catch (e) {
       return next(e);
@@ -86,7 +108,7 @@ export function requirePublicFeature(flag: string) {
         const table = await prisma.cafeTable.findUnique({ where: { qrToken } });
         if (table) {
           const { flags } = await getBusinessFeatures(table.businessId);
-          if (flags[flag] !== true) return next(deny(flag));
+          if (!isFeatureOn(flags, flag)) return next(deny(flag));
         }
       }
       return next();
