@@ -57,7 +57,7 @@ const createManualOrderSchema = z.object({
   customerName: z.string().optional(),
   paymentMethod: z.enum(["cash", "qris", "bank_transfer"]),
   selectedBank: z.enum(["bca", "mandiri", "bni", "bri"]).optional(),
-  // recordOnly: pencatatan kasir murni — lewati Midtrans untuk SEMUA metode,
+  // recordOnly: pencatatan kasir murni — lewati DOKU untuk SEMUA metode,
   // payment pending (dilunasi via Tandai Lunas), gateway "manual".
   recordOnly: z.boolean().optional().default(false),
   // Uang diterima (cash). Kembalian dihitung server & disimpan di gatewayData.
@@ -90,7 +90,7 @@ ordersRouter.post(
       items: data.items,
     });
 
-    // Mode kasir record-only: tanpa Midtrans, simpan tendered/change, tetap pending.
+    // Mode kasir record-only: tanpa DOKU, simpan tendered/change, tetap pending.
     if (data.recordOnly) {
       const total = Number(order.total);
       if (data.paymentMethod === "cash" && data.tendered !== undefined && data.tendered < total) {
@@ -113,36 +113,24 @@ ordersRouter.post(
       return res.status(201).json(recorded ?? order);
     }
 
-    // Sama seperti public: non-cash SELALU via Midtrans (default paksa)
+    // Sama seperti public: non-cash SELALU via DOKU SNAP (global)
     if ((data.paymentMethod as string) !== "cash") {
       try {
-        const business = await prisma.business.findUnique({ where: { id: req.auth!.businessId } });
-        if (business) {
-          const { buildMidtransItemDetails, createMidtransChargeForMethod } = await import("../services/midtrans.service");
-          const charge = await createMidtransChargeForMethod({
-            business: business as unknown as Parameters<typeof createMidtransChargeForMethod>[0]["business"],
-            method: data.paymentMethod as "qris" | "bank_transfer",
-            orderNumber: order.orderNumber,
-            grossAmount: Number(order.total),
-            customerName: data.customerName ?? undefined,
-            paymentSettings: (business.paymentSettings as Record<string, { acquirer?: string; bank?: string; channel?: string; wallets?: string[] }>) ?? {},
-            selectedBank: (data as { selectedBank?: string }).selectedBank,
-            itemDetails: buildMidtransItemDetails({
-              items: order.items.map((i) => ({ productId: i.productId, productName: i.productName, price: i.price, quantity: i.quantity, optionsLabel: i.optionsLabel })),
-              serviceCharge: order.serviceCharge,
-              tax: order.tax,
-              taxLabel: order.taxLabel,
-              platformFee: (order as unknown as { platformFee?: unknown }).platformFee ?? 0,
-            }),
-          });
-          if (charge) {
-            await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gateway: "midtrans", reference: charge.transactionId, gatewayData: charge as unknown as object } });
-            const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true, statusLogs: true, table: true } });
-            if (refreshed) return res.status(201).json(refreshed);
-          }
+        const { createDokuChargeForMethod } = await import("../services/doku.service");
+        const charge = await createDokuChargeForMethod({
+          method: data.paymentMethod as "qris" | "bank_transfer",
+          orderNumber: order.orderNumber,
+          grossAmount: Number(order.total),
+          customerName: data.customerName ?? undefined,
+          selectedBank: (data as { selectedBank?: string }).selectedBank,
+        });
+        if (charge) {
+          await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gateway: "doku", reference: charge.referenceNo ?? charge.partnerReferenceNo, gatewayData: charge as unknown as object } });
+          const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true, statusLogs: true, table: true } });
+          if (refreshed) return res.status(201).json(refreshed);
         }
       } catch (e) {
-        console.error("[Midtrans manual charge] gagal:", e);
+        console.error("[DOKU manual charge] gagal:", e);
       }
     }
 
@@ -178,7 +166,7 @@ ordersRouter.patch(
   })
 );
 
-// PATCH /api/orders/:id/pay — hanya owner/kasir; non-cash wajib lewat Midtrans webhook/polling
+// PATCH /api/orders/:id/pay — hanya owner/kasir; non-cash wajib lewat DOKU webhook/polling
 ordersRouter.patch(
   "/:id/pay",
   requireRole("owner", "kasir"),

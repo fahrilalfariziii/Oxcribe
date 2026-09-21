@@ -284,7 +284,7 @@ export async function markOrderPaid(
   }
   if (order.paymentMethod !== "cash" && !opts?.allowNonCash) {
     throw AppError.badRequest(
-      "Pembayaran non-tunai (qris/bank_transfer) hanya bisa dilunasi via Midtrans (webhook /public/midtrans/notification atau poll /public/orders/by-client/:clientOrderId/status), bukan manual."
+      "Pembayaran non-tunai (qris/bank_transfer) hanya bisa dilunasi via DOKU (webhook /public/doku/notification atau poll /public/orders/by-client/:clientOrderId/status), bukan manual."
     );
   }
 

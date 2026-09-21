@@ -32,7 +32,7 @@ export function platformFeeLabel(
   return business.platformFeeBearer === 'cafe' ? `${base} (ditanggung kafe)` : base
 }
 
-// ---- Estimasi MDR Midtrans (tabel resmi; selalu berlabel "est.") ----
+// ---- Estimasi MDR DOKU (tabel estimasi; selalu berlabel "est.") ----
 
 export const VA_FEE_INCL_VAT = 4440
 

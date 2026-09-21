@@ -435,30 +435,31 @@ di semua endpoint operasional.
 - **business_id di semua tabel operasional** — fondasi SaaS-ready sesuai PRD, walau saat ini baru dipakai untuk 1 bisnis.
 - **Realtime** order baru & perubahan status langsung di-broadcast via SSE per bisnis.
 
-## 7. Midtrans (sudah terintegrasi, bukan roadmap)
+## 7. DOKU SNAP Direct API (custom UI penuh — bukan Checkout hosted)
 
 - **ID unik per charge:** nomor struk (`BE-9028`) boleh berulang (mis. habis seed ulang),
-  tapi setiap charge memakai `midtransOrderId = <orderNumber>-<base36 timestamp>` yang unik
-  selamanya — QRIS menolak `order_id` duplikat (VA mentoleransinya). ID tersimpan di
-  `payments.gatewayData.orderId`; polling status & webhook memakai ID itu, bukan nomor struk.
+  tapi setiap charge memakai `partnerReferenceNo = <orderNumber>-<base36 timestamp>` yang unik
+  selamanya (max 64 char, dipakai sebagai trxId DOKU). ID tersimpan di
+  `payments.gatewayData.partnerReferenceNo`; polling status & webhook memakai ID itu, bukan nomor struk.
   Jangan `TRUNCATE`/seed-ulang di environment yang sudah transaksi ke gateway tanpa sadar
-  konsekuensinya (untuk charge lama pra-ID-unik, webhook fallback cocokkan `orderNumber`).
+  konsekuensinya (order lama `gateway:"midtrans"` tetap terbaca sebagai histori, tidak bisa di-query lagi).
 
-- QRIS tanpa `qris.acquirer` (ikut default GoPay Midtrans, object `qris` Optional sesuai docs).
-- `POST /api/public/orders` & `POST /api/orders` SELALU charge Midtrans untuk non-cash
-  (qris / VA bca-mandiri-bni-bri); nilai `gateway` lama diabaikan;
-- Metode: `cash|qris|bank_transfer` (e-wallet dihapus). SeaBank TIDAK didukung Core API
-  klasik (hanya via BI-SNAP, di luar scope) — jangan ditambahkan ke allowlist.
-- Mandiri = Bill Payment: wajib `bill_info1/2` (dikirim otomatis, bill_info2 = ID order unik);
-  respons berupa `bill_key` yang dipetakan ke kolom VA di aplikasi.
-  `item_details` produk + Service Charge + Tax ikut terkirim (sum == total, kalau tidak cocok di-omit agar charge tetap sukses).
-- `payments.gateway = "midtrans"`, `reference = transaction_id`,
-  `gatewayData = { qrUrl, qrString, vaNumber, redirectUrl, raw, lastNotification }`
-  (merge — webhook `pending` tidak menghapus `qrUrl` charge).
-- Webhook `POST /api/public/midtrans/notification` verifikasi `SHA512(order_id+status_code+gross_amount+ServerKey)`;
-  butuh URL publik — lokal pakai ngrok: `MIDTRANS_NOTIFICATION_URL=https://<xxx>.ngrok-free.app/api/public/midtrans/notification`.
-- Tanpa ngrok, pakai `GET /api/public/orders/by-number/:orderNumber/status` untuk poll + auto-sync `paid`.
-- Isi `.env`: `MIDTRANS_SERVER_KEY=SB-Mid-server-...`, `MIDTRANS_IS_PRODUCTION=false` untuk Sandbox.
+- Auth 2 lapis (standar BI-SNAP): `POST /authorization/v1/access-token/b2b`
+  (`X-CLIENT-KEY`, `X-TIMESTAMP`, `X-SIGNATURE=RSA-SHA256(privateKey, "clientId|timestamp")`, cache ~15 mnt),
+  lalu charge dengan `X-PARTNER-ID, X-EXTERNAL-ID (numeric unik), X-TIMESTAMP, X-SIGNATURE=HMAC_SHA512(secret, "METHOD:path:token:sha256(body):timestamp"), Authorization: Bearer, CHANNEL-ID: H2H`.
+- `POST /api/public/orders` & `POST /api/orders` SELALU charge DOKU untuk non-cash
+  (qris via `/snap-adapter/b2b/v1.0/qr/qr-mpm-generate` → `qrContent` string dirender FE via `qrcode.react`;
+  VA bca/mandiri/bni/bri via `/virtual-accounts/bi-snap-va/v1.1/transfer-va/create-va` DGPC → `virtualAccountNo`); nilai `gateway` lama diabaikan.
+- Metode: `cash|qris|bank_transfer` (e-wallet dihapus). Semua bank VA DOKU (tidak ada jalur echannel khusus Mandiri lagi).
+- `payments.gateway = "doku"`, `reference = referenceNo ?? partnerReferenceNo`,
+  `gatewayData = { partnerReferenceNo, qrContent, referenceNo, vaNumber, vaBank, expiredDate, raw, lastNotification }`
+  (merge — webhook tidak menghapus QR/VA charge).
+- Webhook `POST /api/public/doku/notification` verifikasi `X-SIGNATURE` simetris;
+  butuh URL publik — lokal pakai ngrok: `DOKU_NOTIFICATION_URL=https://<xxx>.ngrok-free.app/api/public/doku/notification`.
+- Tanpa ngrok, pakai `GET /api/public/orders/by-client/:clientOrderId/status` untuk poll + auto-sync `paid`
+  (QRIS via `/qr/qr-mpm-query`, VA via `/orders/v1.0/transfer-va/status`).
+- Isi `.env`: `DOKU_CLIENT_ID, DOKU_SECRET_KEY, DOKU_PRIVATE_KEY (\n), DOKU_MERCHANT_ID, DOKU_TERMINAL_ID, DOKU_POSTAL_CODE=10110, DOKU_IS_PRODUCTION=false` untuk Sandbox.
+  Tanpa kredensial, order tetap tercatat tapi tanpa QR/VA (FE tampil retry jujur).
 
 ## 8. Backup database (penting!)
 
@@ -481,4 +482,4 @@ Database dev memakai Docker volume (`backend_servopay_db_data`). Berlaku:
 3. `npx prisma migrate deploy` (bukan `migrate dev`) untuk menerapkan migrasi tanpa prompt interaktif.
 4. Ganti `JWT_SECRET` dengan string acak panjang yang benar-benar rahasia.
 5. Set `CORS_ORIGIN` ke domain frontend production.
-6. Ganti `MIDTRANS_IS_PRODUCTION=true` + ServerKey production + `MIDTRANS_NOTIFICATION_URL` domain publik.
+6. Ganti `DOKU_IS_PRODUCTION=true` + kredensial production + `DOKU_NOTIFICATION_URL` domain publik.

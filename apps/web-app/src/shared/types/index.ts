@@ -10,8 +10,7 @@ export interface PaymentSettings {
   bankName?: string
   accountNumber?: string
   accountName?: string
-  gateway?: 'manual' | 'midtrans'
-  // Deprecated: tidak dikirim ke Midtrans lagi, diabaikan backend.
+  gateway?: 'manual' | 'midtrans' | 'doku'
   acquirer?: string
   bank?: 'bca' | 'mandiri' | 'bni' | 'bri'
   allowedBanks?: ('bca' | 'mandiri' | 'bni' | 'bri')[]
@@ -109,9 +108,8 @@ export interface Business {
   theme?: BusinessTheme
   enabledPaymentMethods: PaymentMethod[]
   paymentSettings: Record<string, PaymentSettings>
-  midtransMode: 'global' | 'custom'
-  hasMidtransCustomKey: boolean
-  midtransQrisAcquirer?: string | null
+  dokuMode?: 'global'
+  dokuConfigured?: boolean
 }
 
 export interface StaffUser {

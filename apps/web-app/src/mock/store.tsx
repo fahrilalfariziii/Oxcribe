@@ -411,8 +411,8 @@ export function CafeProvider({ children }: { children: ReactNode }) {
         enabledPaymentMethods: (biz.enabledPaymentMethods as PaymentMethod[]) ?? prev.enabledPaymentMethods,
         paymentSettings: (biz.paymentSettings as Record<string, PaymentSettings>) ?? prev.paymentSettings,
         theme: normalizeTheme(biz.theme),
-        midtransMode: (biz.midtransMode as Business['midtransMode']) ?? prev.midtransMode,
-        hasMidtransCustomKey: biz.hasMidtransCustomKey ?? prev.hasMidtransCustomKey,
+        dokuMode: 'global',
+        dokuConfigured: (biz as { dokuConfigured?: boolean }).dokuConfigured ?? false,
       }))
       const catalog = await api.getCatalog(biz.id)
       // Map categories & products
@@ -561,7 +561,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
     return { orders: ok, owner }
   }, [refreshOrderFromBackend])
 
-  // Terbitkan charge Midtrans baru (ID unik baru) untuk order pending yang
+  // Terbitkan charge DOKU baru (partnerReferenceNo unik baru) untuk order pending yang
   // QR/VA-nya gagal terbit. Gagal -> throw agar UI jujur.
   const rechargeOrderFromBackend = useCallback(async (clientOrderId: string, selectedBank?: string): Promise<Order | null> => {
     const raw = (await api.rechargePublicOrder(clientOrderId, selectedBank)) as unknown as Record<string, unknown>

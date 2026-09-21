@@ -36,7 +36,7 @@ servopay/
   Seed data disamakan dua sisi (`backend/prisma/seed.ts` ↔ `apps/web-app/src/mock/data.ts`:
   bisnis Bean & Brew, staff Owner123!/Kasir123!/Barista123!, menu, meja `table-01..06`).
 - Sorotan Fase 2: JWT httpOnly-cookie + Bearer (silent refresh), SSE per-bisnis,
-  Midtrans 4 metode (cash/qris/ewallet/bank_transfer) + ID unik per charge + recharge,
+  DOKU SNAP QRIS+VA (cash/qris/bank_transfer) + partnerReferenceNo unik per charge + recharge,
   manual order record-only + tendered/kembalian, inventory 2 tab (Receive/Adjustment + procurement),
   shift kas (opening/expected/closing/selisih), printer ESC/POS Bluetooth/USB real (LAN simulasi),
   tema self-order per kafe (preset + custom + preview), grafik recharts dari data asli,
@@ -80,12 +80,12 @@ npm run dev
 > **Peringatan data:** `npm run seed` me-`TRUNCATE` semua tabel (ID restart). Jangan seed-ulang /
 > `compose down -v` di environment berisi transaksi asli tanpa backup (`pg_dump` dulu).
 > Jangan seed-ulang di environment yang sudah transaksi ke Midtrans (ID struk bisa lahir kembali;
-> ID Midtrans unik per charge menanggungnya, lihat `backend/README.md` §7).
+> ID DOKU unik per charge menanggungnya, lihat `backend/README.md` §7).
 
 ## 5. Dokumentasi per sisi
 
 - Backend: buka `backend/README.md` — stack, setup, akun seed, alur testing per endpoint (curl),
-  daftar endpoint lengkap, aturan bisnis, Midtrans (charge/webhook/recharge/ngrok), backup, menuju production.
+  daftar endpoint lengkap, aturan bisnis, DOKU (charge/webhook/recharge/ngrok), backup, menuju production.
 - Web-app: buka `apps/web-app/README.md` — stack, rute per role, aturan bisnis, sinkronisasi realtime,
   tema, struktur folder aktual.
 - Landing page: `apps/landing-page` — marketing publik, baca `GET /api/public/plans`, kirim `POST /api/public/leads`.

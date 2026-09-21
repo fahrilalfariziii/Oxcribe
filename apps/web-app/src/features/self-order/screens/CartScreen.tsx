@@ -53,7 +53,7 @@ export function CartScreen({
   const [error, setError] = useState(false);
   const availableMethods = ALL_METHODS.filter((m) => (business.enabledPaymentMethods ?? ['cash','qris']).includes(m.id))
   const bankCfg = (business.paymentSettings as Record<string, { allowedBanks?: string[]; bank?: string }>)?.bank_transfer
-  // Saring ke 4 bank yang didukung Midtrans Core API — nilai basi (permata/cimb/dll)
+  // Saring ke 4 bank yang didukung DOKU SNAP — nilai basi (permata/cimb/dll)
   // dari pengaturan lama tidak boleh ditawarkan ke pelanggan.
   const SUPPORTED_BANK_IDS = ['bca', 'mandiri', 'bni', 'bri']
   const rawAllowed: string[] = bankCfg?.allowedBanks && bankCfg.allowedBanks.length > 0 ? bankCfg.allowedBanks : (bankCfg?.bank ? [bankCfg.bank] : SUPPORTED_BANK_IDS)

@@ -8,7 +8,7 @@ import { FEATURES, getBusinessFeatures, isFeatureOn, requirePublicFeature } from
 import { PLANS, getPlanByCode } from "../lib/plans";
 import { asyncHandler } from "../middleware/error-handler";
 import { createOrder } from "../services/order.service";
-import { buildMidtransItemDetails, createMidtransChargeForMethod, getMidtransTransactionStatus, midtransOrderIdFromPayments, verifyMidtransSignature } from "../services/midtrans.service";
+import { createDokuChargeForMethod, dokuReferenceFromPayments, getDokuQrisStatus, getDokuVAStatus, normalizeDokuStatus, verifyDokuNotification } from "../services/doku.service";
 import { markOrderPaid, cancelOrder } from "../services/order.service";
 import { emitOrderPaymentUpdate, emitOrderStatusUpdate } from "../lib/realtime";
 import { handleStream } from "../lib/realtime";
@@ -21,7 +21,7 @@ const publicOrderLimiter = rateLimit({
   message: { error: "Terlalu banyak order, coba lagi sebentar" },
 });
 
-const midtransNotificationLimiter = rateLimit({
+const dokuNotificationLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   standardHeaders: true,
@@ -64,8 +64,7 @@ publicRouter.get(
       throw AppError.notFound("QR meja tidak valid atau tidak aktif");
     }
 
-    const midtransMode = (table.business as unknown as { midtransMode?: string }).midtransMode ?? "global";
-    const hasCustomKey = Boolean((table.business as unknown as { midtransServerKeyEnc?: string }).midtransServerKeyEnc);
+    const dokuConfigured = Boolean(process.env.DOKU_CLIENT_ID && process.env.DOKU_MERCHANT_ID);
     // Flag granular OFF = paksa komponen NOL di response publik
     // agar cart self-order hitung total murni untuk komponen itu.
     // Sertakan flags penuh agar FE bisa tampilkan state "Self-order nonaktif" dkk.
@@ -106,9 +105,8 @@ publicRouter.get(
         features: flags,
         enabledPaymentMethods: (table.business as unknown as { enabledPaymentMethods?: unknown }).enabledPaymentMethods ?? ["cash", "qris"],
         paymentSettings: (table.business as unknown as { paymentSettings?: unknown }).paymentSettings ?? {},
-        midtransMode,
-        hasMidtransCustomKey: hasCustomKey,
-        midtransQrisAcquirer: (table.business as unknown as { midtransQrisAcquirer?: string }).midtransQrisAcquirer ?? null,
+        dokuMode: "global",
+        dokuConfigured,
         theme: (table.business as unknown as { theme?: unknown }).theme ?? null,
       },
     });
@@ -277,38 +275,26 @@ publicRouter.post(
       items: data.items,
     });
 
-    // Metode non-cash SELALU via Midtrans (default paksa; nilai gateway lama diabaikan)
+    // Metode non-cash SELALU via DOKU SNAP (global; nilai gateway lama diabaikan)
     if ((data.paymentMethod as string) !== "cash") {
       try {
-        const business = await prisma.business.findUnique({ where: { id: table.businessId } });
-        if (business) {
-          const charge = await createMidtransChargeForMethod({
-            business: business as unknown as Parameters<typeof createMidtransChargeForMethod>[0]["business"],
-            method: data.paymentMethod as "qris" | "bank_transfer",
-            orderNumber: order.orderNumber,
-            grossAmount: Number(order.total),
-            customerName: data.customerName,
-            paymentSettings: (business.paymentSettings as Record<string, { acquirer?: string; bank?: string; channel?: string; wallets?: string[] }>) ?? {},
-            selectedBank: (data as { selectedBank?: string }).selectedBank,
-            itemDetails: buildMidtransItemDetails({
-              items: order.items.map((i) => ({ productId: i.productId, productName: i.productName, price: i.price, quantity: i.quantity, optionsLabel: i.optionsLabel })),
-              serviceCharge: order.serviceCharge,
-              tax: order.tax,
-              taxLabel: order.taxLabel,
-              platformFee: (order as unknown as { platformFee?: unknown }).platformFee ?? 0,
-            }),
+        const charge = await createDokuChargeForMethod({
+          method: data.paymentMethod as "qris" | "bank_transfer",
+          orderNumber: order.orderNumber,
+          grossAmount: Number(order.total),
+          customerName: data.customerName,
+          selectedBank: (data as { selectedBank?: string }).selectedBank,
+        });
+        if (charge) {
+          await prisma.payment.updateMany({
+            where: { orderId: order.id },
+            data: { gateway: "doku", reference: charge.referenceNo ?? charge.partnerReferenceNo, gatewayData: charge as unknown as object },
           });
-          if (charge) {
-            await prisma.payment.updateMany({
-              where: { orderId: order.id },
-              data: { gateway: "midtrans", reference: charge.transactionId, gatewayData: charge as unknown as object },
-            });
-            const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true, statusLogs: true, table: true } });
-            if (refreshed) return res.status(201).json(refreshed);
-          }
+          const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true, statusLogs: true, table: true } });
+          if (refreshed) return res.status(201).json(refreshed);
         }
       } catch (e) {
-        console.error("[Midtrans charge] gagal:", e);
+        console.error("[DOKU charge] gagal:", e);
         // tetap return order tanpa gatewayData — FE akan tampil retry
       }
     }
@@ -330,94 +316,83 @@ publicRouter.get(
   })
 );
 
-// GET /api/public/orders/by-client/:clientOrderId/status — poll Midtrans status (fallback webhook)
-// Opsi A: lookup via clientOrderId UUID (tidak bisa ditebak) — orderNumber tetap untuk Midtrans order_id.
+// GET /api/public/orders/by-client/:clientOrderId/status — poll DOKU (fallback webhook)
+// Lookup via clientOrderId UUID — partnerReferenceNo unik per charge tersimpan di gatewayData.
 publicRouter.get(
   "/orders/by-client/:clientOrderId/status",
   asyncHandler(async (req, res) => {
     const order = await prisma.order.findUnique({ where: { clientOrderId: req.params.clientOrderId }, include: { items: true, payments: true } });
     if (!order) throw AppError.notFound("Order tidak ditemukan");
-    const business = await prisma.business.findUnique({ where: { id: order.businessId } });
-    if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
-    // Pakai ID Midtrans unik per charge (tersimpan di gatewayData), bukan nomor struk
-    // yang boleh berulang — QRIS menolak order_id duplikat.
-    const midtransOrderId = midtransOrderIdFromPayments(
-      order.payments as unknown as Array<{ gatewayData?: unknown }>,
-      order.orderNumber
-    );
-    const midtransStatus = await getMidtransTransactionStatus(business as unknown as Parameters<typeof getMidtransTransactionStatus>[0], midtransOrderId);
-    if (!midtransStatus) return res.json({ order, midtrans: null });
-    // Fallback rekonstruksi qrUrl QRIS bila gatewayData lama terlanjur tertimpa webhook
-    // (pola resmi Midtrans: GET /v2/qris/:transaction_id/qr-code).
+    const gd = ((order as unknown as { payments?: Array<{ gatewayData?: Record<string, unknown> }> }).payments?.[0]?.gatewayData ?? {}) as Record<string, unknown>;
+    if (order.paymentMethod === "cash" || !gd.partnerReferenceNo) return res.json({ order, doku: null, midtrans: null });
+    let dokuStatus: Record<string, unknown> | null = null;
     try {
-      const payment = (order as unknown as { payments?: Array<{ gatewayData?: Record<string, unknown>; reference?: string | null }> }).payments?.[0];
-      const gd = (payment?.gatewayData ?? {}) as Record<string, unknown>;
-      if (order.paymentMethod === "qris" && !gd.qrUrl) {
-        const txId = String((midtransStatus.transaction_id as string) || payment?.reference || "");
-        if (txId) {
-          const isProd = (process.env.MIDTRANS_IS_PRODUCTION || "false").toLowerCase() === "true";
-          const base = isProd ? "https://api.midtrans.com" : "https://api.sandbox.midtrans.com";
-          (midtransStatus as Record<string, unknown>).fallbackQrUrl = `${base}/v2/qris/${txId}/qr-code`;
-        }
+      if (order.paymentMethod === "qris") {
+        dokuStatus = await getDokuQrisStatus({ partnerReferenceNo: String(gd.partnerReferenceNo), referenceNo: typeof gd.referenceNo === "string" ? gd.referenceNo : undefined });
+      } else {
+        dokuStatus = await getDokuVAStatus({ partnerServiceId: typeof gd.partnerServiceId === "string" ? gd.partnerServiceId : undefined, customerNo: typeof gd.customerNo === "string" ? gd.customerNo : undefined, virtualAccountNo: typeof gd.vaNumber === "string" ? gd.vaNumber : undefined });
       }
     } catch {}
-    const txStatus = (midtransStatus.transaction_status as string) || "";
-    // Auto-sync jika sudah settlement di Midtrans tapi lokal masih pending
-    if ((txStatus === "settlement" || txStatus === "capture") && order.paymentStatus !== "paid") {
+    if (!dokuStatus) return res.json({ order, doku: null, midtrans: null });
+    const norm = normalizeDokuStatus(dokuStatus);
+    if (norm === "paid" && order.paymentStatus !== "paid") {
       try {
-        const updated = await markOrderPaid(business.id, order.id, { reference: (midtransStatus.transaction_id as string) || undefined }, { allowNonCash: true });
-        emitOrderPaymentUpdate(business.id, updated);
-        return res.json({ order: updated, midtrans: midtransStatus });
+        const ref = typeof (dokuStatus.referenceNo as string) === "string" ? (dokuStatus.referenceNo as string) : String(gd.partnerReferenceNo);
+        const updated = await markOrderPaid(order.businessId, order.id, { reference: ref }, { allowNonCash: true });
+        emitOrderPaymentUpdate(order.businessId, updated);
+        return res.json({ order: updated, doku: dokuStatus, midtrans: dokuStatus });
       } catch {}
     }
-    if ((txStatus === "expire" || txStatus === "deny" || txStatus === "cancel") && order.paymentStatus === "pending") {
+    if (norm === "failed" && order.paymentStatus === "pending") {
       await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "failed" } });
       await prisma.payment.updateMany({ where: { orderId: order.id }, data: { status: "failed" } });
-      // Auto-batal: order gagal bayar keluar dari tab aktif POS dan masuk riwayat.
       try {
-        const cancelled = await cancelOrder(business.id, order.id);
-        emitOrderStatusUpdate(business.id, cancelled);
+        const cancelled = await cancelOrder(order.businessId, order.id);
+        emitOrderStatusUpdate(order.businessId, cancelled);
       } catch {}
       const failed = await prisma.order.findUnique({
         where: { id: order.id },
         include: { items: true, payments: true, statusLogs: { orderBy: { createdAt: "asc" } } },
       });
-      return res.json({ order: failed ?? order, midtrans: midtransStatus });
+      return res.json({ order: failed ?? order, doku: dokuStatus, midtrans: dokuStatus });
     }
-    res.json({ order, midtrans: midtransStatus });
+    res.json({ order, doku: dokuStatus, midtrans: dokuStatus });
   })
 );
 
-// Deprecated alias — tetap dukung orderNumber sequential untuk backward compat, tapi log warning
+// Deprecated alias by-number — tetap didukung, log warning
 publicRouter.get(
   "/orders/by-number/:orderNumber/status",
   asyncHandler(async (req, res) => {
     console.warn("[deprecated] GET /by-number/:orderNumber/status dipakai, ganti ke /by-client/:clientOrderId/status");
     const order = await prisma.order.findUnique({ where: { orderNumber: req.params.orderNumber }, include: { items: true, payments: true } });
     if (!order) throw AppError.notFound("Order tidak ditemukan");
-    const business = await prisma.business.findUnique({ where: { id: order.businessId } });
-    if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
-    const midtransOrderId = midtransOrderIdFromPayments(
-      order.payments as unknown as Array<{ gatewayData?: unknown }>,
-      order.orderNumber
-    );
-    const midtransStatus = await getMidtransTransactionStatus(business as unknown as Parameters<typeof getMidtransTransactionStatus>[0], midtransOrderId);
-    if (!midtransStatus) return res.json({ order, midtrans: null });
-    const txStatus = (midtransStatus.transaction_status as string) || "";
-    if ((txStatus === "settlement" || txStatus === "capture") && order.paymentStatus !== "paid") {
+    const gd = ((order as unknown as { payments?: Array<{ gatewayData?: Record<string, unknown> }> }).payments?.[0]?.gatewayData ?? {}) as Record<string, unknown>;
+    if (order.paymentMethod === "cash" || !gd.partnerReferenceNo) return res.json({ order, doku: null, midtrans: null });
+    let dokuStatus: Record<string, unknown> | null = null;
+    try {
+      if (order.paymentMethod === "qris") {
+        dokuStatus = await getDokuQrisStatus({ partnerReferenceNo: String(gd.partnerReferenceNo), referenceNo: typeof gd.referenceNo === "string" ? gd.referenceNo : undefined });
+      } else {
+        dokuStatus = await getDokuVAStatus({ partnerServiceId: typeof gd.partnerServiceId === "string" ? gd.partnerServiceId : undefined, customerNo: typeof gd.customerNo === "string" ? gd.customerNo : undefined, virtualAccountNo: typeof gd.vaNumber === "string" ? gd.vaNumber : undefined });
+      }
+    } catch {}
+    if (!dokuStatus) return res.json({ order, doku: null, midtrans: null });
+    const norm = normalizeDokuStatus(dokuStatus);
+    if (norm === "paid" && order.paymentStatus !== "paid") {
       try {
-        const updated = await markOrderPaid(business.id, order.id, { reference: (midtransStatus.transaction_id as string) || undefined }, { allowNonCash: true });
-        emitOrderPaymentUpdate(business.id, updated);
-        return res.json({ order: updated, midtrans: midtransStatus });
+        const updated = await markOrderPaid(order.businessId, order.id, { reference: String(gd.partnerReferenceNo) }, { allowNonCash: true });
+        emitOrderPaymentUpdate(order.businessId, updated);
+        return res.json({ order: updated, doku: dokuStatus, midtrans: dokuStatus });
       } catch {}
     }
-    res.json({ order, midtrans: midtransStatus });
+    res.json({ order, doku: dokuStatus, midtrans: dokuStatus });
   })
 );
 
-// POST /api/public/orders/by-client/:clientOrderId/recharge — terbitkan charge baru
-// untuk order pending yang QR/VA-nya gagal terbit (mis. order_id duplikat di Midtrans).
-// Setiap recharge memakai midtransOrderId unik yang baru, jadi selalu legal.
+// POST /api/public/orders/by-client/:clientOrderId/recharge — terbitkan charge DOKU baru
+// untuk order pending yang QR/VA-nya gagal terbit. Setiap recharge memakai
+// partnerReferenceNo unik yang baru, jadi selalu legal.
 publicRouter.post(
   "/orders/by-client/:clientOrderId/recharge",
   publicOrderLimiter,
@@ -428,28 +403,22 @@ publicRouter.post(
     });
     if (!order) throw AppError.notFound("Order tidak ditemukan");
     if (order.paymentStatus !== "pending") throw AppError.badRequest("Order sudah tidak pending");
-    if (order.paymentMethod === "cash") throw AppError.badRequest("Cash tidak perlu recharge Midtrans");
-
-    const business = await prisma.business.findUnique({ where: { id: order.businessId } });
-    if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
+    if (order.paymentMethod === "cash") throw AppError.badRequest("Cash tidak perlu recharge DOKU");
 
     // Gate self-order: recharge milik paket tanpa self-order ditolak 403.
     const { getBusinessFeatures: getBF, isFeatureOn: isOn } = await import("../lib/feature-gate");
     const { flags: rechargeFlags } = await getBF(order.businessId);
     if (!isOn(rechargeFlags, FEATURES.SELF_ORDER)) {
       throw AppError.forbidden(
-        "Fitur ini tidak termasuk paket kafe Anda (selfOrder). Hubungi tim sales Ordria untuk upgrade."
+        "Fitur ini tidak termasuk paket kafe Anda (selfOrder). Hubungi tim sales untuk upgrade."
       );
     }
 
-    // Idempoten: bila QR/VA/redirect valid SUDAH tersimpan, kembalikan apa adanya —
-    // "muat ulang" tidak boleh membuat transaksi baru di Midtrans.
+    // Idempoten: bila QR/VA SUDAH tersimpan, kembalikan apa adanya
     const existingGateway = (order.payments?.[0]?.gatewayData ?? {}) as Record<string, unknown>;
     const hasUsablePayload =
-      typeof existingGateway.qrUrl === "string" ||
-      typeof existingGateway.qrString === "string" ||
-      typeof existingGateway.vaNumber === "string" ||
-      typeof existingGateway.redirectUrl === "string";
+      typeof existingGateway.qrContent === "string" ||
+      typeof existingGateway.vaNumber === "string";
     if (hasUsablePayload) {
       const asIs = await prisma.order.findUnique({
         where: { id: order.id },
@@ -464,36 +433,26 @@ publicRouter.post(
       ? (body.selectedBank as string)
       : undefined;
 
-    const charge = await createMidtransChargeForMethod({
-      business: business as unknown as Parameters<typeof createMidtransChargeForMethod>[0]["business"],
+    const charge = await createDokuChargeForMethod({
       method: order.paymentMethod as "qris" | "bank_transfer",
       orderNumber: order.orderNumber,
       grossAmount: Number(order.total),
       customerName: order.customerName ?? undefined,
-      paymentSettings: (business.paymentSettings as Record<string, { acquirer?: string; bank?: string; channel?: string; wallets?: string[] }>) ?? {},
       selectedBank,
-      itemDetails: buildMidtransItemDetails({
-        items: order.items.map((i) => ({ productId: i.productId, productName: i.productName, price: i.price, quantity: i.quantity, optionsLabel: i.optionsLabel })),
-        serviceCharge: order.serviceCharge,
-        tax: order.tax,
-        taxLabel: order.taxLabel,
-        platformFee: (order as unknown as { platformFee?: unknown }).platformFee ?? 0,
-      }),
     });
-    if (!charge) throw AppError.badRequest("Midtrans tidak terkonfigurasi untuk bisnis ini");
+    if (!charge) throw AppError.badRequest("DOKU charge gagal — periksa kredensial/B2B token di log server");
 
-    // Silsilah: ID charge lama disimpan agar notifikasi susulannya tetap dikenali
-    // (pelanggan bisa saja membayar QR/VA lama). Merge, JANGAN timpa buta.
+    // Silsilah: reference lama disimpan agar notifikasi susulan tetap dikenali
     const prevGateway = (order.payments?.[0]?.gatewayData ?? {}) as Record<string, unknown>;
-    const prevIds = Array.isArray(prevGateway.previousOrderIds) ? (prevGateway.previousOrderIds as string[]) : [];
-    const prevOrderId = typeof prevGateway.orderId === "string" ? (prevGateway.orderId as string) : null;
-    const previousOrderIds = [...prevIds, ...(prevOrderId && prevOrderId !== charge.orderId ? [prevOrderId] : [])].slice(-10);
+    const prevIds = Array.isArray(prevGateway.previousReferenceNos) ? (prevGateway.previousReferenceNos as string[]) : [];
+    const prevRef = typeof prevGateway.partnerReferenceNo === "string" ? (prevGateway.partnerReferenceNo as string) : null;
+    const previousReferenceNos = [...prevIds, ...(prevRef && prevRef !== charge.partnerReferenceNo ? [prevRef] : [])].slice(-10);
     await prisma.payment.updateMany({
       where: { orderId: order.id },
       data: {
-        gateway: "midtrans",
-        reference: charge.transactionId,
-        gatewayData: { ...charge, previousOrderIds } as unknown as object,
+        gateway: "doku",
+        reference: charge.referenceNo ?? charge.partnerReferenceNo,
+        gatewayData: { ...charge, previousReferenceNos } as unknown as object,
       },
     });
     const refreshed = await prisma.order.findUnique({
@@ -504,110 +463,96 @@ publicRouter.post(
   })
 );
 
-// POST /api/public/midtrans/notification — webhook Midtrans (public, verify signature)
+// POST /api/public/doku/notification — HTTP Notification DOKU SNAP (public, verify X-SIGNATURE)
+// Mendukung VA payment notification (virtualAccountNo/trxId) & QRIS/debit notify
+// (originalPartnerReferenceNo + latestTransactionStatus). Balas 200 agar DOKU berhenti retry.
 publicRouter.post(
-  "/midtrans/notification",
-  midtransNotificationLimiter,
+  "/doku/notification",
+  dokuNotificationLimiter,
   asyncHandler(async (req, res) => {
-    const body = req.body as Record<string, unknown>;
-    const orderId = String(body.order_id || "");
-    const statusCode = String(body.status_code || "");
-    const grossAmount = String(body.gross_amount || "");
-    const signatureKey = String(body.signature_key || "");
-    const transactionStatus = String(body.transaction_status || "");
-    const transactionId = String(body.transaction_id || "");
-    const paymentType = String(body.payment_type || "");
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const headers = req.headers as Record<string, string | string[] | undefined>;
+    const getH = (k: string) => String(headers[k.toLowerCase()] ?? headers[k] ?? "");
 
-    if (!orderId) throw AppError.badRequest("order_id wajib");
+    const candidates = [
+      body.trxId, body.partnerReferenceNo,
+      (body.virtualAccountData as Record<string, unknown> | undefined)?.trxId,
+      body.originalPartnerReferenceNo, body.originalReferenceNo,
+    ].filter((v): v is string => typeof v === "string" && v.length > 0);
 
-    // body.order_id adalah midtransOrderId unik ("BE-9028-m3k9x1"). Cari order:
-    // 1) cocok orderNumber persis (order lama sebelum ID unik),
-    // 2) via gatewayData.orderId,
-    // 3) via gatewayData.previousOrderIds (charge lama yang tertimpa recharge —
-    //    pelanggan bisa saja membayar QR/VA lama, uangnya tetap harus tercatat).
-    let order = await prisma.order.findUnique({ where: { orderNumber: orderId } });
+    let order: Awaited<ReturnType<typeof prisma.order.findUnique>> = null;
     let paidVia: string | null = null;
-    if (!order) {
-      const payment = await prisma.payment.findFirst({
-        where: { gatewayData: { path: ["orderId"], equals: orderId } },
-      });
-      if (payment) {
-        order = await prisma.order.findUnique({ where: { id: payment.orderId } });
-      }
+    for (const ref of candidates) {
+      const byNumber = await prisma.order.findUnique({ where: { orderNumber: ref } });
+      if (byNumber) { order = byNumber; break; }
+      const pay = await prisma.payment.findFirst({ where: { gatewayData: { path: ["partnerReferenceNo"], equals: ref } } });
+      if (pay) { order = await prisma.order.findUnique({ where: { id: pay.orderId } }); if (order) break; }
     }
-    if (!order) {
-      const recent = await prisma.payment.findMany({
-        orderBy: { id: "desc" },
-        take: 100,
-      });
+    if (!order && candidates.length > 0) {
+      const recent = await prisma.payment.findMany({ orderBy: { id: "desc" }, take: 100 });
       const hit = recent.find((p) => {
-        const gd = p.gatewayData as unknown as { previousOrderIds?: unknown };
-        return Array.isArray(gd?.previousOrderIds) && (gd.previousOrderIds as unknown[]).includes(orderId);
+        const gd = p.gatewayData as unknown as { previousReferenceNos?: unknown } | null;
+        return Array.isArray(gd?.previousReferenceNos) && candidates.some((c) => (gd.previousReferenceNos as unknown[]).includes(c));
       });
-      if (hit) {
-        order = await prisma.order.findUnique({ where: { id: hit.orderId } });
-        paidVia = orderId;
-      }
+      if (hit) { order = await prisma.order.findUnique({ where: { id: hit.orderId } }); paidVia = candidates[0]; }
     }
     if (!order) {
-      // Praktik standar Midtrans: ID tak dikenal (test dashboard/retry basi/order DB lain)
-      // dibalas 200 agar Midtrans BERHENTI retry, tapi dicatat agar bisa ditelusuri.
-      console.warn(`[Midtrans notification] unknown order_id diabaikan: ${orderId} (type=${paymentType}, status=${transactionStatus})`);
-      return res.json({ status: "ignored", reason: "unknown order_id" });
+      console.warn(`[DOKU notification] unknown reference diabaikan: ${candidates.join(",")}`);
+      return res.json({ responseCode: "2002600", responseMessage: "Successful (ignored)" });
     }
 
-    const business = await prisma.business.findUnique({ where: { id: order.businessId } });
-    if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
-
-    // Resolve ServerKey untuk verifikasi signature
-    const enc = (business as unknown as { midtransServerKeyEnc?: string }).midtransServerKeyEnc;
-    let serverKey = process.env.MIDTRANS_SERVER_KEY || "";
-    if ((business as unknown as { midtransMode?: string }).midtransMode === "custom" && enc) {
-      try {
-        const { decrypt } = await import("../lib/encryption");
-        serverKey = decrypt(enc);
-      } catch {}
+    try {
+      const signature = getH("x-signature");
+      const timestamp = getH("x-timestamp");
+      const authz = getH("authorization");
+      const accessToken = authz.startsWith("Bearer ") ? authz.slice(7) : authz;
+      if (signature && timestamp && process.env.DOKU_SECRET_KEY) {
+        const path = "/api/public/doku/notification";
+        const valid = verifyDokuNotification({ httpMethod: "POST", endpointPath: path, accessToken, body, timestamp, signature });
+        if (!valid) throw AppError.badRequest("signature tidak valid");
+      }
+    } catch (e) {
+      const st = (e as unknown as { status?: number }).status;
+      if (st === 400) throw e;
+      console.warn("[DOKU notification] verifikasi dilewati:", (e as Error).message);
     }
-    if (!serverKey) {
-      console.warn("[Midtrans notification] ServerKey tidak dikonfigurasi");
-      return res.json({ status: "ignored", reason: "no server key" });
-    }
-    const valid = verifyMidtransSignature({ order_id: orderId, status_code: statusCode, gross_amount: grossAmount, signature_key: signatureKey, serverKey });
-    if (!valid) throw AppError.badRequest("signature_key tidak valid");
 
-    // Merge agar qrUrl/qrString dari charge tidak hilang tertimpa body notifikasi.
+    const latest = String(body.latestTransactionStatus ?? "").toUpperCase();
+    const vaData = body.virtualAccountData as Record<string, unknown> | undefined;
+    const paidAmountRaw = (body.paidAmount as { value?: string } | undefined)?.value ?? (vaData?.paidAmount as { value?: string } | undefined)?.value;
+    const isPaid = latest === "00" || latest === "SUCCESS" || (paidAmountRaw !== undefined && Number(paidAmountRaw) > 0) || Boolean(body.paymentRequestId);
+    const isFailed = ["04", "05", "06", "07", "FAILED", "EXPIRED", "CANCELLED"].includes(latest);
+
     const existingPayments = await prisma.payment.findMany({ where: { orderId: order.id } });
     const existingGatewayData = (existingPayments[0]?.gatewayData as Record<string, unknown>) ?? {};
     const mergedGatewayData = {
       ...(typeof existingGatewayData === "object" && existingGatewayData !== null ? existingGatewayData : {}),
       lastNotification: body,
-      lastStatus: transactionStatus,
-      ...(paidVia ? { paidViaOrderId: paidVia } : {}),
+      lastStatus: latest || "notified",
+      ...(paidVia ? { paidViaReference: paidVia } : {}),
       updatedAt: new Date().toISOString(),
     } as unknown as object;
 
-    if (transactionStatus === "settlement" || transactionStatus === "capture") {
+    if (isPaid) {
       if (order.paymentStatus !== "paid") {
-        const updated = await markOrderPaid(business.id, order.id, { reference: transactionId || paymentType }, { allowNonCash: true });
-        // update gatewayData paid flag (merge, jangan overwrite qrUrl)
+        const ref = String((body.referenceNo as string) || candidates[0] || order.orderNumber);
+        const updated = await markOrderPaid(order.businessId, order.id, { reference: ref }, { allowNonCash: true });
         await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gatewayData: mergedGatewayData } });
-        emitOrderPaymentUpdate(business.id, updated);
+        emitOrderPaymentUpdate(order.businessId, updated);
       }
-    } else if (transactionStatus === "expire" || transactionStatus === "deny" || transactionStatus === "cancel" || transactionStatus === "failure") {
+    } else if (isFailed) {
       await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "failed" } });
       await prisma.payment.updateMany({ where: { orderId: order.id }, data: { status: "failed", gatewayData: mergedGatewayData } });
       const failedOrder = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true } });
-      if (failedOrder) emitOrderPaymentUpdate(business.id, failedOrder);
-      // Auto-batal: keluar dari tab aktif POS, masuk riwayat (kecuali sudah lunas/selesai).
+      if (failedOrder) emitOrderPaymentUpdate(order.businessId, failedOrder);
       try {
-        const cancelled = await cancelOrder(business.id, order.id);
-        emitOrderStatusUpdate(business.id, cancelled);
+        const cancelled = await cancelOrder(order.businessId, order.id);
+        emitOrderStatusUpdate(order.businessId, cancelled);
       } catch {}
-    } else if (transactionStatus === "pending") {
-      // biarkan pending, simpan notifikasi tanpa hapus qrUrl/qrString charge
+    } else {
       await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gatewayData: mergedGatewayData } });
     }
 
-    res.json({ status: "ok" });
+    res.json({ responseCode: "2002600", responseMessage: "Successful" });
   })
 );

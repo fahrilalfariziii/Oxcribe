@@ -116,7 +116,7 @@ export function OrdersPage() {
     }
   }
   const handlePaid = async (order: Order) => {
-    // Hanya cash yang boleh ditandai manual — non-cash wajib via webhook Midtrans.
+    // Hanya cash yang boleh ditandai manual — non-cash wajib via webhook DOKU.
     if (order.paymentMethod !== 'cash') return
     setPayError(null)
     setPayingId(order.id)

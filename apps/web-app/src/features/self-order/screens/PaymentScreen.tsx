@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { QRCodeCanvas } from 'qrcode.react'
 import type { Order } from '../../../shared/types'
 import { normalizeTheme } from '../../../shared/types'
 import { formatRupiah } from '../../../shared/lib/format'
@@ -8,19 +9,31 @@ import { IconBack } from '../../../shared/components/icons'
 import { useCafe } from '../../../mock/store'
 import { subscribeStream } from '../../../lib/stream'
 
+type GatewayData = {
+  qrContent?: string
+  qrUrl?: string
+  qrString?: string
+  vaNumber?: string
+  vaBank?: string
+  expiredDate?: string
+  expiry_time?: string
+  expiryTime?: string
+  raw?: { expiry_time?: string; expiredDate?: string }
+}
+
 interface Props {
-  order: Order & { payments?: Array<{ gatewayData?: { qrUrl?: string; vaNumber?: string; vaBank?: string; billerCode?: string; redirectUrl?: string; qrString?: string } }> }
+  order: Order & { payments?: Array<{ gatewayData?: GatewayData }> }
   onBack: () => void
   onConfirm: () => void
-  /** Terbitkan ulang QR/VA (ID Midtrans baru). Dipakai saat charge pertama gagal. */
+  /** Terbitkan ulang QR/VA (partnerReferenceNo DOKU baru). Dipakai saat charge pertama gagal. */
   onRetry?: () => Promise<void>
 }
 
 function formatExpiryWIB(expiry?: string): string | null {
   if (!expiry) return null
   try {
-    // Midtrans format "2026-09-09 12:34:56" — treat as WIB (GMT+7) without TZ, parse as local +07:00
-    const iso = expiry.replace(' ', 'T') + '+07:00'
+    // DOKU ISO8601 ("2026-09-14T12:34:56+07:00" / "...Z") atau legacy Midtrans "YYYY-MM-DD HH:mm:ss"
+    const iso = expiry.includes('T') ? expiry : expiry.replace(' ', 'T') + '+07:00'
     const d = new Date(iso)
     if (isNaN(d.getTime())) return null
     return d.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) + ' WIB'
@@ -30,7 +43,7 @@ function useCountdown(expiry?: string) {
   const [text, setText] = useState<string>('')
   useEffect(() => {
     if (!expiry) { setText(''); return }
-    const iso = expiry.replace(' ', 'T') + '+07:00'
+    const iso = expiry.includes('T') ? expiry : expiry.replace(' ', 'T') + '+07:00'
     const target = new Date(iso).getTime()
     if (isNaN(target)) return
     const tick = () => {
@@ -59,6 +72,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
   const [downloading, setDownloading] = useState(false)
   const [payNotice, setPayNotice] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
+  const qrCanvasRef = useRef<HTMLDivElement>(null)
 
   // Tombol "Cek Status" hanya pindah ke layar status bila pembayaran SUDAH lunas.
   // Kalau belum, tetap di halaman pembayaran + tampilkan pemberitahuan.
@@ -84,10 +98,22 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
   }
 
   async function handleDownloadQr() {
-    const url = gatewayData?.qrUrl
-    if (!url || downloading) return
     setDownloading(true)
     try {
+      // QR DOKU (qrContent) dirender via canvas — unduh langsung dari canvas
+      const canvas = qrCanvasRef.current?.querySelector('canvas')
+      if (canvas && gatewayData?.qrContent) {
+        const a = document.createElement('a')
+        a.href = canvas.toDataURL('image/png')
+        a.download = `QRIS-${liveOrder.orderNumber}.png`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        return
+      }
+      // Legacy qrUrl (Midtrans): fetch lalu unduh
+      const url = gatewayData?.qrUrl
+      if (!url) return
       const res = await fetch(url)
       if (!res.ok) throw new Error('fetch gagal')
       const blob = await res.blob()
@@ -100,8 +126,8 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
       a.remove()
       window.setTimeout(() => URL.revokeObjectURL(obj), 5000)
     } catch {
-      // Fallback: buka di tab baru bila download langsung diblokir (CORS)
-      window.open(url, '_blank', 'noopener')
+      const url = gatewayData?.qrUrl
+      if (url) window.open(url, '_blank', 'noopener')
     } finally {
       setDownloading(false)
     }
@@ -160,8 +186,8 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
   }, [liveOrder.clientOrderId, refreshOrderFromBackend, onConfirm, liveOrder])
 
   const methodLabel = liveOrder.paymentMethod === 'qris' ? 'QRIS' : liveOrder.paymentMethod === 'bank_transfer' ? 'Transfer Bank' : 'Tunai'
-  const gatewayData = (liveOrder as Props['order']).payments?.[0]?.gatewayData as unknown as { qrUrl?: string; vaNumber?: string; vaBank?: string; billerCode?: string; redirectUrl?: string; qrString?: string; raw?: { expiry_time?: string }; expiry_time?: string; expiryTime?: string } | undefined
-  const rawExpiry = (gatewayData as { raw?: { expiry_time?: string }; expiry_time?: string; expiryTime?: string })?.raw?.expiry_time || (gatewayData as { expiry_time?: string })?.expiry_time || (gatewayData as { expiryTime?: string })?.expiryTime
+  const gatewayData = (liveOrder as Props['order']).payments?.[0]?.gatewayData as GatewayData | undefined
+  const rawExpiry = gatewayData?.expiredDate || gatewayData?.raw?.expiredDate || gatewayData?.raw?.expiry_time || gatewayData?.expiry_time || gatewayData?.expiryTime
   const fallbackExpiry = (() => {
     if (rawExpiry) return rawExpiry
     // fallback: QRIS 15 menit, VA 24 jam dari createdAt
@@ -170,12 +196,13 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
       if (isNaN(base)) return undefined
       const add = liveOrder.paymentMethod === 'bank_transfer' ? 24*3600000 : 15*60000
       const d = new Date(base + add)
-      const pad = (n:number)=>String(n).padStart(2,'0')
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+      return d.toISOString()
     } catch { return undefined }
   })()
   const expiryText = formatExpiryWIB(fallbackExpiry)
   const countdown = useCountdown(fallbackExpiry)
+  const qrValue = gatewayData?.qrContent || gatewayData?.qrString
+  const hasQr = Boolean(qrValue || gatewayData?.qrUrl)
   async function copyText(text: string | undefined, key: string) {
     if (!text) return
     try {
@@ -217,11 +244,19 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
 
         {liveOrder.paymentMethod === 'qris' && (
           <div className="rounded-[12px] border border-[#e2e2e2] bg-white px-5 py-6 text-center shadow-sm">
-            {gatewayData?.qrUrl ? (
+            {hasQr ? (
               <>
-                <button type="button" onClick={() => setQrZoom(true)} title="Ketuk untuk perbesar" aria-label="Perbesar QRIS">
-                  <img src={gatewayData.qrUrl} alt="QRIS" className="mx-auto size-72 max-w-full object-contain border border-clay p-2 rounded-lg bg-white" />
-                </button>
+                {qrValue ? (
+                  <button type="button" onClick={() => setQrZoom(true)} title="Ketuk untuk perbesar" aria-label="Perbesar QRIS">
+                    <div ref={qrCanvasRef} className="mx-auto w-fit border border-clay p-2 rounded-lg bg-white">
+                      <QRCodeCanvas value={qrValue} size={288} />
+                    </div>
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setQrZoom(true)} title="Ketuk untuk perbesar" aria-label="Perbesar QRIS">
+                    <img src={gatewayData?.qrUrl} alt="QRIS" className="mx-auto size-72 max-w-full object-contain border border-clay p-2 rounded-lg bg-white" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleDownloadQr}
@@ -234,7 +269,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
               </>
             ) : (
               <div className="mx-auto max-w-[240px]">
-                <p className="text-sm font-semibold text-black">QR belum terbit dari Midtrans</p>
+                <p className="text-sm font-semibold text-black">QR belum terbit dari DOKU</p>
                 <p className="mt-1 text-xs text-soil">Pembayaran tercatat, tapi kode QR gagal dibuat (mis. gangguan gateway). Muat ulang untuk menerbitkan QR baru.</p>
                 {retryError && <p className="mt-2 text-xs font-medium text-[#ba1a1a]">{retryError}</p>}
                 <button
@@ -248,9 +283,9 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
                 </button>
               </div>
             )}
-            {gatewayData?.qrUrl && expiryText && <p className="mt-3 text-xs text-soil">Bayar sebelum <span className="font-semibold text-black">{expiryText}</span></p>}
-            {gatewayData?.qrUrl && countdown && <p className="mt-1 text-[11px] font-bold text-sage">{countdown}</p>}
-            {gatewayData?.qrUrl && <p className="mt-3 text-xs text-soil">Scan dengan GoPay, ShopeePay, DANA, OVO, LinkAja atau m-banking yang dukung QRIS. QR berlaku 15 menit.</p>}
+            {hasQr && expiryText && <p className="mt-3 text-xs text-soil">Bayar sebelum <span className="font-semibold text-black">{expiryText}</span></p>}
+            {hasQr && countdown && <p className="mt-1 text-[11px] font-bold text-sage">{countdown}</p>}
+            {hasQr && <p className="mt-3 text-xs text-soil">Scan dengan GoPay, ShopeePay, DANA, OVO, LinkAja atau m-banking yang dukung QRIS. QR berlaku 15 menit.</p>}
           </div>
         )}
 
@@ -259,50 +294,28 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
             {gatewayData?.vaNumber ? (
               <>
                 <p className="text-xs font-semibold uppercase tracking-wider text-stone">
-                  {gatewayData.vaBank === 'mandiri' ? 'Mandiri Bill Key' : <>Virtual Account {gatewayData.vaBank ? `— ${gatewayData.vaBank.toUpperCase()}` : ''}</>}
+                  Virtual Account {gatewayData.vaBank ? `— ${gatewayData.vaBank.toUpperCase()}` : ''}
                 </p>
-                {gatewayData.vaBank === 'mandiri' && gatewayData.billerCode && (
-                  <>
-                    <p className="text-[11px] text-soil">Kode Perusahaan</p>
-                    <p className="text-base font-mono font-bold tracking-wider text-black">{gatewayData.billerCode}</p>
-                    <button type="button" onClick={() => copyText(gatewayData.billerCode, 'biller')} className="mx-auto flex items-center gap-1 rounded-full border border-clay bg-cream px-3 py-1 text-xs font-semibold text-black">
-                      <span className="material-symbols-outlined text-[16px]">{copied === 'biller' ? 'check' : 'content_copy'}</span>
-                      <span>{copied === 'biller' ? 'Tersalin' : 'Salin Kode Perusahaan'}</span>
-                    </button>
-                  </>
-                )}
                 <p className="text-lg font-mono font-bold tracking-wider text-black">{gatewayData.vaNumber}</p>
                 <button type="button" onClick={handleCopyVa} className="mx-auto flex items-center gap-1 rounded-full border border-clay bg-cream px-3 py-1 text-xs font-semibold text-black">
                   <span className="material-symbols-outlined text-[16px]">{copied === 'va' ? 'check' : 'content_copy'}</span>
-                  <span>{copied === 'va' ? 'Tersalin' : gatewayData.vaBank === 'mandiri' ? 'Salin Bill Key' : 'Salin VA'}</span>
+                  <span>{copied === 'va' ? 'Tersalin' : 'Salin VA'}</span>
                 </button>
                 <p className="text-sm font-semibold text-black">Total: {formatRupiah(liveOrder.total)}</p>
                 {expiryText && <p className="text-xs text-soil">Bayar sebelum <span className="font-semibold text-black">{expiryText}</span></p>}
                 {countdown && <p className="mt-1 text-[11px] font-bold text-sage">{countdown}</p>}
                 <div className="text-left rounded-lg bg-cream p-3 text-xs leading-relaxed text-soil border border-sand">
                   <p className="font-semibold text-black mb-1">Tata cara pembayaran:</p>
-                  {gatewayData.vaBank === 'mandiri' ? (
-                    <>
-                      <p>1. Buka Livin&apos;/ATM Mandiri → Bayar → Multipayment</p>
-                      {gatewayData.billerCode && <p>2. Pilih perusahaan dengan kode <strong className="text-black">{gatewayData.billerCode}</strong></p>}
-                      <p>{gatewayData.billerCode ? '3.' : '2.'} Masukkan Bill Key di atas</p>
-                      <p>{gatewayData.billerCode ? '4.' : '3.'} Pastikan nominal {formatRupiah(liveOrder.total)} benar</p>
-                      <p>{gatewayData.billerCode ? '5.' : '4.'} Konfirmasi & simpan bukti</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>1. Buka m-banking / ATM {gatewayData.vaBank ? gatewayData.vaBank.toUpperCase() : ''}</p>
-                      <p>2. Pilih Transfer → Virtual Account</p>
-                      <p>3. Masukkan nomor VA di atas</p>
-                      <p>4. Pastikan nominal {formatRupiah(liveOrder.total)} & nama penerima benar</p>
-                      <p>5. Konfirmasi & simpan bukti</p>
-                    </>
-                  )}
+                  <p>1. Buka m-banking / ATM {gatewayData.vaBank ? gatewayData.vaBank.toUpperCase() : ''}</p>
+                  <p>2. Pilih Transfer → Virtual Account</p>
+                  <p>3. Masukkan nomor VA di atas</p>
+                  <p>4. Pastikan nominal {formatRupiah(liveOrder.total)} & nama penerima benar</p>
+                  <p>5. Konfirmasi & simpan bukti</p>
                 </div>
               </>
             ) : (
               <>
-                <p className="text-sm text-soil">Nomor VA belum terbit dari Midtrans.</p>
+                <p className="text-sm text-soil">Nomor VA belum terbit dari DOKU.</p>
                 <p className="text-sm font-semibold text-black">{formatRupiah(liveOrder.total)}</p>
                 {retryError && <p className="text-xs font-medium text-[#ba1a1a]">{retryError}</p>}
                 <button
@@ -329,7 +342,21 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
         </Button>
         <Button variant="outline" className="h-12 w-full rounded-[8px]" onClick={onBack}>Pilih Metode Lain</Button>
       </div>
-      {qrZoom && gatewayData?.qrUrl && (
+      {qrZoom && qrValue && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
+          onClick={() => setQrZoom(false)}
+        >
+          <div className="text-center">
+            <div className="mx-auto w-fit rounded-xl bg-white p-3">
+              <QRCodeCanvas value={qrValue} size={420} />
+            </div>
+            <p className="mt-3 text-sm font-semibold text-white">Scan QR ini · ketuk untuk tutup</p>
+            <p className="mt-1 font-display text-lg font-bold text-white">{formatRupiah(liveOrder.total)}</p>
+          </div>
+        </div>
+      )}
+      {qrZoom && !qrValue && gatewayData?.qrUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
           onClick={() => setQrZoom(false)}

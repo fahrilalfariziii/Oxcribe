@@ -5,7 +5,6 @@ import { AppError } from "../lib/errors";
 import { asyncHandler } from "../middleware/error-handler";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { FEATURES, getBusinessFeatures, isFeatureOn } from "../lib/feature-gate";
-import { encrypt, isEncrypted } from "../lib/encryption";
 import { emitBusinessCashUpdate, emitBusinessUpdated } from "../lib/realtime";
 
 export const businessRouter = Router();
@@ -17,7 +16,6 @@ businessRouter.get(
   asyncHandler(async (req, res) => {
     const business = await prisma.business.findUnique({ where: { id: req.auth!.businessId } });
     if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
-    const { midtransServerKeyEnc: _enc, ...safe } = business as unknown as Record<string, unknown> & { midtransServerKeyEnc?: string };
     // Flag fitur efektif (untuk FE sembunyikan menu, mis. serviceCharge/taxFees).
     // Gagal resolve (mis. suspended) -> tetap kembalikan profil tanpa features.
     let features: Record<string, boolean> | undefined;
@@ -25,23 +23,20 @@ businessRouter.get(
       const resolved = await getBusinessFeatures(req.auth!.businessId);
       features = resolved.flags;
     } catch {}
-    res.json({ ...safe, hasMidtransCustomKey: Boolean(_enc), midtransServerKeyEnc: undefined, ...(features ? { features } : {}) });
+    res.json({ ...business, dokuMode: "global", ...(features ? { features } : {}) });
   })
 );
 
 const paymentSettingsValueSchema = z.object({
-  // Deprecated: non-cash SELALU via Midtrans (default paksa server) dan instruksi
-  // pelanggan dihapus dari UI. Tetap diterima agar payload lama tidak error,
-  // tapi DIABAIKAN backend.
+  // Non-cash SELALU via DOKU SNAP (global). Field lama tetap diterima agar
+  // payload lama tidak error, tapi DIABAIKAN backend.
   instruction: z.string().max(800).optional(),
   qrImageUrl: z.string().optional(),
   bankName: z.string().max(100).optional(),
   accountNumber: z.string().max(50).optional(),
   accountName: z.string().max(100).optional(),
   wallets: z.array(z.string()).optional(),
-  gateway: z.enum(["manual", "midtrans"]).optional(),
-  // Deprecated: tidak lagi dikirim ke Midtrans (ikut default gopay).
-  // Tetap diterima agar payload lama tidak error, tapi diabaikan backend.
+  gateway: z.enum(["manual", "midtrans", "doku"]).optional(),
   acquirer: z.string().optional(),
   bank: z.enum(["bca", "mandiri", "bni", "bri"]).optional(),
   allowedBanks: z.array(z.enum(["bca", "mandiri", "bni", "bri"])).optional(),
@@ -77,11 +72,6 @@ const updateBusinessSchema = z.object({
     .min(1, "Minimal 1 metode pembayaran harus aktif")
     .optional(),
   paymentSettings: z.record(paymentSettingsValueSchema).optional(),
-  midtransMode: z.enum(["global", "custom"]).optional(),
-  midtransServerKey: z.string().min(10).optional(),
-  midtransClientKey: z.string().optional(),
-  // Deprecated: tidak dipakai lagi (Midtrans default gopay). Tetap diterima opsional.
-  midtransQrisAcquirer: z.string().optional(),
 });
 
 // PATCH /api/business/cash-settings — modal kas & suara (kasir/barista/owner).
@@ -202,33 +192,15 @@ businessRouter.put(
   }),
   asyncHandler(async (req, res) => {
     const data = updateBusinessSchema.parse(req.body);
-    const { midtransServerKey, midtransClientKey, midtransQrisAcquirer, midtransMode, ...rest } = data as typeof data & {
-      midtransServerKey?: string;
-      midtransClientKey?: string;
-      midtransQrisAcquirer?: string;
-      midtransMode?: string;
-    };
-    const prismaData: Record<string, unknown> = { ...rest };
-    if (midtransMode !== undefined) prismaData.midtransMode = midtransMode;
-    if (midtransQrisAcquirer !== undefined) prismaData.midtransQrisAcquirer = midtransQrisAcquirer;
-    if (midtransClientKey !== undefined) prismaData.midtransClientKey = midtransClientKey;
-    if (midtransServerKey !== undefined) {
-      const trimmed = midtransServerKey.trim();
-      if (trimmed.length > 0 && !isEncrypted(trimmed)) {
-        prismaData.midtransServerKeyEnc = encrypt(trimmed);
-      }
-    }
     const updated = await prisma.business.update({
       where: { id: req.auth!.businessId },
-      data: prismaData,
+      data: data as Record<string, unknown>,
     });
-    // Jangan expose encrypted key ke FE
-    const { midtransServerKeyEnc: _enc, ...safe } = updated as unknown as Record<string, unknown> & { midtransServerKeyEnc?: string };
     let features: Record<string, boolean> | undefined;
     try {
       features = (await getBusinessFeatures(req.auth!.businessId)).flags;
     } catch {}
-    emitBusinessUpdated(req.auth!.businessId, { ...safe, hasMidtransCustomKey: Boolean(_enc) });
-    res.json({ ...safe, hasMidtransCustomKey: Boolean(_enc), ...(features ? { features } : {}) });
+    emitBusinessUpdated(req.auth!.businessId, { ...updated, dokuMode: "global" });
+    res.json({ ...updated, dokuMode: "global", ...(features ? { features } : {}) });
   })
 );

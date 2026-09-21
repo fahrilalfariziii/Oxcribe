@@ -97,7 +97,7 @@ if (typeof window !== 'undefined') {
 export const api = {
   // Public — no auth, no credentials
   resolveTable: (qrToken: string) =>
-    request<{ table: { id: number; tableNumber: string; area?: string; qrConfig?: unknown }; business: { id: number; name: string; tagline?: string; logoUrl?: string; taxEnabled: boolean; taxLabel: string; taxRate: string | number; taxBearer: string; serviceChargeEnabled: boolean; serviceChargeRate: string | number; serviceChargeMode: string; serviceChargeFlat: string | number; platformFeeEnabled: boolean; platformFeeMode: string; platformFeePercent: string | number; platformFeeFlat: string | number; platformFeeBearer: string; enabledPaymentMethods: string[]; paymentSettings: Record<string, unknown>; midtransMode: string; hasMidtransCustomKey: boolean; theme?: unknown; features?: Record<string, boolean> } }>(
+    request<{ table: { id: number; tableNumber: string; area?: string; qrConfig?: unknown }; business: { id: number; name: string; tagline?: string; logoUrl?: string; taxEnabled: boolean; taxLabel: string; taxRate: string | number; taxBearer: string; serviceChargeEnabled: boolean; serviceChargeRate: string | number; serviceChargeMode: string; serviceChargeFlat: string | number; platformFeeEnabled: boolean; platformFeeMode: string; platformFeePercent: string | number; platformFeeFlat: string | number; platformFeeBearer: string; enabledPaymentMethods: string[]; paymentSettings: Record<string, unknown>; dokuMode?: string; dokuConfigured?: boolean; theme?: unknown; features?: Record<string, boolean> } }>(
       `/api/public/tables/${qrToken}`,
     ),
   getCatalog: (businessId: number) =>
@@ -108,7 +108,7 @@ export const api = {
     request<unknown>(`/api/public/orders`, { method: 'POST', body: JSON.stringify(payload) }),
   getPublicOrder: (clientOrderId: string) => request<unknown>(`/api/public/orders/${clientOrderId}`),
   getPublicOrderStatus: (clientOrderId: string) =>
-    request<{ order: unknown; midtrans: unknown | null }>(`/api/public/orders/by-client/${clientOrderId}/status`),
+    request<{ order: unknown; doku: unknown | null; midtrans?: unknown | null }>(`/api/public/orders/by-client/${clientOrderId}/status`),
   rechargePublicOrder: (clientOrderId: string, selectedBank?: string) =>
     request<unknown>(`/api/public/orders/by-client/${clientOrderId}/recharge`, { method: 'POST', body: JSON.stringify(selectedBank ? { selectedBank } : {}) }),
 

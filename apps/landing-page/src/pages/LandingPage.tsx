@@ -373,7 +373,7 @@ export function LandingPage() {
               Pertanyaan yang Sering Diajukan
             </h2>
             <p className="mt-2 text-[15px] text-on-surface-variant">
-              Semua yang perlu Anda ketahui mengenai implementasi Ordria di kafe Anda.
+              Semua yang perlu Anda ketahui mengenai implementasi Oxcribe di kafe Anda.
             </p>
           </div>
           <div className="space-y-4">

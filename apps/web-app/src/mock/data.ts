@@ -73,12 +73,11 @@ export const seedBusiness: Business = {
   enabledPaymentMethods: ['cash', 'qris', 'bank_transfer'],
   paymentSettings: {
     cash: { gateway: 'manual' },
-    qris: { gateway: 'midtrans' },
-    bank_transfer: { gateway: 'midtrans', bank: 'bca', allowedBanks: ['bca', 'mandiri', 'bni', 'bri'] },
+    qris: { gateway: 'doku' },
+    bank_transfer: { gateway: 'doku', bank: 'bca', allowedBanks: ['bca', 'mandiri', 'bni', 'bri'] },
   },
-  midtransMode: 'global',
-  hasMidtransCustomKey: false,
-  midtransQrisAcquirer: null,
+  dokuMode: 'global',
+  dokuConfigured: false,
 }
 
 export const seedStaff: StaffUser[] = [

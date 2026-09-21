@@ -99,7 +99,7 @@ export function DashboardPage() {
       <div className="mb-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
         {[
           { label: 'Potongan Aplikasi', value: formatRupiah(feeTotal), hint: 'Total platform fee self-order' },
-          { label: 'MDR Midtrans (est.)', value: formatRupiah(mdrTotal), hint: 'Estimasi tabel resmi' },
+          { label: 'MDR DOKU (est.)', value: formatRupiah(mdrTotal), hint: 'Estimasi tabel resmi' },
           { label: 'Pendapatan Bersih (est.)', value: formatRupiah(netTotal), hint: 'Kotor − fee − MDR' },
         ].map((k) => (
           <article key={k.label} className="flex h-32 flex-col justify-between rounded-[12px] bg-[#f5f0e7] p-6 ring-1 ring-[#e4e2dd]">

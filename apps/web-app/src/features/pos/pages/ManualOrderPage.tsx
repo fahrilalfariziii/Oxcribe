@@ -154,7 +154,7 @@ export function ManualOrderPage() {
     )
   }
 
-  // Submit Transaksi Akhir — BE-first recordOnly (tanpa Midtrans, status pending).
+  // Submit Transaksi Akhir — BE-first recordOnly (tanpa DOKU, status pending).
   // Varian layar {type:name} dipetakan ke selectedOptionIds BE agar total server = total layar.
   async function handleFinalCheckout() {
     if (cart.length === 0 || checkoutSaving) return
@@ -500,7 +500,7 @@ export function ManualOrderPage() {
                 </select>
               </div>
 
-                {/* Metode Pembayaran (record-only: dicatat, tanpa Midtrans) */}
+                {/* Metode Pembayaran (record-only: dicatat, tanpa DOKU) */}
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase text-stone">Metode Pembayaran (dicatat)</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -547,7 +547,7 @@ export function ManualOrderPage() {
                 <span>Total Tagihan</span>
                 <span className="text-sage">{formatRupiah(total)}</span>
               </div>
-              <p className="text-[11px] text-stone">Pesanan manual hanya dicatat (tanpa Midtrans) dengan status pending — lunasi via Tandai Lunas di Live Orders.</p>
+              <p className="text-[11px] text-stone">Pesanan manual hanya dicatat (tanpa DOKU) dengan status pending — lunasi via Tandai Lunas di Live Orders.</p>
             </div>
 
             {checkoutError && (

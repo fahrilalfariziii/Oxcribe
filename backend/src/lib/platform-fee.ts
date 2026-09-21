@@ -1,4 +1,4 @@
-// Platform fee self-order non-tunai + estimasi MDR Midtrans.
+// Platform fee self-order non-tunai + estimasi MDR DOKU.
 //
 // Konteks (keputusan produk):
 // - Harga menu diasumsikan sudah include pajak/service -> basis fee = SUBTOTAL.
@@ -6,7 +6,7 @@
 //   Cash & manual order (source pos) selalu 0.
 // - Bearer mengikuti pola taxBearer: customer = fee di atas total pelanggan;
 //   cafe = total pelanggan tetap, fee mengurangi pendapatan owner.
-// - MDR Midtrans TIDAK punya API fee aktual -> pakai tabel resmi (estimasi!):
+// - MDR DOKU TIDAK punya API fee aktual -> pakai tabel estimasi:
 //   QRIS 0,7% (inklusif PPN, regulasi BI), VA bank Rp4.000 + PPN 11% = Rp4.440,
 //   cash Rp0. Selalu tampilkan label "estimasi" di UI.
 
@@ -55,7 +55,7 @@ export function calcPlatformFee(
   return { platformFee: round2(subtotal * (pct / 100)), platformFeeBearer: bearer };
 }
 
-// ---- Estimasi MDR Midtrans (tabel resmi, BUKAN angka aktual settlement) ----
+// ---- Estimasi MDR DOKU (tabel estimasi, BUKAN angka aktual settlement) ----
 
 export interface MdrEstimate {
   fee: number;
@@ -67,7 +67,7 @@ export interface MdrEstimate {
 const VA_FEE_INCL_VAT = 4440;
 
 /**
- * Estimasi biaya MDR dari grossAmount yang di-charge ke Midtrans.
+ * Estimasi biaya MDR dari grossAmount yang di-charge ke DOKU.
  * QRIS = 0,7% (inklusif PPN). VA bank = flat Rp4.440. Cash/manual = 0.
  */
 export function estimateMdrFee(grossAmount: number, paymentMethod: string): MdrEstimate {
@@ -75,7 +75,7 @@ export function estimateMdrFee(grossAmount: number, paymentMethod: string): MdrE
     return {
       fee: round2(grossAmount * 0.007),
       label: "MDR QRIS 0,7%",
-      note: "Estimasi tabel resmi Midtrans (inklusif PPN). Angka aktual mengikuti settlement.",
+      note: "Estimasi tabel DOKU (inklusif PPN). Angka aktual mengikuti settlement.",
     };
   }
   if (paymentMethod === "bank_transfer") {
@@ -85,7 +85,7 @@ export function estimateMdrFee(grossAmount: number, paymentMethod: string): MdrE
       note: "Estimasi: Rp4.000 + PPN 11% per transaksi sukses.",
     };
   }
-  return { fee: 0, label: "Tanpa MDR", note: "Tunai/manual tidak lewat Midtrans." };
+  return { fee: 0, label: "Tanpa MDR", note: "Tunai/manual tidak lewat DOKU." };
 }
 
 export interface SettlementBreakdown {

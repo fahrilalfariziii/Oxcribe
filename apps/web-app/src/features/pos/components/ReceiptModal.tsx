@@ -11,7 +11,7 @@ interface Props {
 export function ReceiptModal({ order, onClose }: Props) {
   const { business } = useCafe()
   // MDR: pakai snapshot order bila ada; order lama (snapshot 0) pakai estimasi live.
-  // Selalu berlabel estimasi — angka aktual mengikuti settlement Midtrans.
+  // Selalu berlabel estimasi — angka aktual mengikuti settlement DOKU.
   const mdrLive = estimateMdrPreview(order.total, order.paymentMethod)
   const mdrFee = (order.mdrFee ?? 0) > 0 ? order.mdrFee : mdrLive.fee
   const net = netEstimate({ total: order.total, platformFee: order.platformFee ?? 0, mdrFee })

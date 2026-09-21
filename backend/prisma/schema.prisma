@@ -11,53 +11,49 @@ datasource db {
 }
 
 model Business {
-  id                   Int      @id @default(autoincrement())
-  name                 String
-  tagline              String?
-  address              String?
-  phone                String?
-  email                String?
-  logoUrl              String?  @map("logo_url")
-  taxLabel             String   @default("PPN") @map("tax_label")
-  taxRate              Decimal  @default(0) @db.Decimal(6, 4) @map("tax_rate")
-  taxEnabled           Boolean  @default(false) @map("tax_enabled")
-  taxBearer            String   @default("customer") @map("tax_bearer") // customer | cafe
-  serviceChargeRate    Decimal  @default(0) @db.Decimal(6, 4) @map("service_charge_rate")
-  serviceChargeEnabled Boolean  @default(false) @map("service_charge_enabled")
+  id                    Int       @id @default(autoincrement())
+  name                  String
+  tagline               String?
+  address               String?
+  phone                 String?
+  email                 String?
+  logoUrl               String?   @map("logo_url")
+  taxLabel              String    @default("PPN") @map("tax_label")
+  taxRate               Decimal   @default(0) @map("tax_rate") @db.Decimal(6, 4)
+  taxEnabled            Boolean   @default(false) @map("tax_enabled")
+  taxBearer             String    @default("customer") @map("tax_bearer") // customer | cafe
+  serviceChargeRate     Decimal   @default(0) @map("service_charge_rate") @db.Decimal(6, 4)
+  serviceChargeEnabled  Boolean   @default(false) @map("service_charge_enabled")
   // Service charge butuh flag serviceCharge dari admin + toggle owner.
   // Owner bebas on/off kapan saja setelah flag menyala (independen dari pajak).
-  serviceChargeMode    String   @default("percent") @map("service_charge_mode") // percent | flat
-  serviceChargeFlat    Decimal  @default(0) @db.Decimal(14, 2) @map("service_charge_flat")
-  soundEnabled         Boolean  @default(true) @map("sound_enabled")
-  openingCash          Decimal  @default(0) @db.Decimal(14, 2) @map("opening_cash")
-  closingCash          Decimal? @map("closing_cash") @db.Decimal(14, 2) // uang closing shift aktif (null = shift terbuka)
-  cashClosedAt         DateTime? @map("cash_closed_at") // waktu tutup shift terakhir
-  qrTemplate           Json?    @map("qr_template")
-  theme                Json?    @map("theme") // kustom tema self-order owner (warna, header, font)
-  enabledPaymentMethods Json     @default("[\"cash\", \"qris\"]") @map("enabled_payment_methods")
-  paymentSettings       Json?    @default("{}") @map("payment_settings")
-  midtransMode          String   @default("global") @map("midtrans_mode") // global | custom
-  midtransServerKeyEnc  String?  @map("midtrans_server_key_enc")
-  midtransClientKey     String?  @map("midtrans_client_key")
-  midtransQrisAcquirer  String?  @map("midtrans_qris_acquirer") // gopay | airpay_shopee
-  status               String   @default("active")
+  serviceChargeMode     String    @default("percent") @map("service_charge_mode") // percent | flat
+  serviceChargeFlat     Decimal   @default(0) @map("service_charge_flat") @db.Decimal(14, 2)
+  soundEnabled          Boolean   @default(true) @map("sound_enabled")
+  openingCash           Decimal   @default(0) @map("opening_cash") @db.Decimal(14, 2)
+  closingCash           Decimal?  @map("closing_cash") @db.Decimal(14, 2) // uang closing shift aktif (null = shift terbuka)
+  cashClosedAt          DateTime? @map("cash_closed_at") // waktu tutup shift terakhir
+  qrTemplate            Json?     @map("qr_template")
+  theme                 Json?     @map("theme") // kustom tema self-order owner (warna, header, font)
+  enabledPaymentMethods Json      @default("[\"cash\", \"qris\"]") @map("enabled_payment_methods")
+  paymentSettings       Json?     @default("{}") @map("payment_settings")
+  status                String    @default("active")
   // ---- Platform fee self-order non-tunai (per kafe, diatur Platform Admin) ----
   // Harga menu diasumsikan sudah include pajak/service, jadi basis fee = subtotal.
   // Bearer mengikuti pola taxBearer: customer = fee di atas total; cafe = mengurangi pendapatan owner.
-  platformFeeEnabled   Boolean  @default(false) @map("platform_fee_enabled")
-  platformFeeMode      String   @default("percent") @map("platform_fee_mode") // percent | flat
-  platformFeePercent   Decimal  @default(0) @db.Decimal(6, 4) @map("platform_fee_percent") // persen dari subtotal
-  platformFeeFlat      Decimal  @default(0) @db.Decimal(14, 2) @map("platform_fee_flat") // rupiah per transaksi
-  platformFeeBearer    String   @default("customer") @map("platform_fee_bearer") // customer | cafe
+  platformFeeEnabled    Boolean   @default(false) @map("platform_fee_enabled")
+  platformFeeMode       String    @default("percent") @map("platform_fee_mode") // percent | flat
+  platformFeePercent    Decimal   @default(0) @map("platform_fee_percent") @db.Decimal(6, 4) // persen dari subtotal
+  platformFeeFlat       Decimal   @default(0) @map("platform_fee_flat") @db.Decimal(14, 2) // rupiah per transaksi
+  platformFeeBearer     String    @default("customer") @map("platform_fee_bearer") // customer | cafe
   // ---- Kolom platform SaaS (Fase 3, docs/prd_SaaS_multitenant.md §7) ----
-  slug                 String?  @unique // identifier unik tenant (URL/subdomain self-order)
-  currentPlanId        Int?     @map("current_plan_id") // denormalisasi paket aktif (lookup cepat feature gate)
-  currentPlan          Plan?    @relation("BusinessCurrentPlan", fields: [currentPlanId], references: [id])
-  onboardedAt          DateTime? @map("onboarded_at")
-  isPlatformSuspended  Boolean  @default(false) @map("is_platform_suspended") // kill-switch platform admin
-  featureOverrides     Json?    @map("feature_overrides") // pengecualian fitur khusus tenant ini, mis. {"selfOrder": true}
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  slug                  String?   @unique // identifier unik tenant (URL/subdomain self-order)
+  currentPlanId         Int?      @map("current_plan_id") // denormalisasi paket aktif (lookup cepat feature gate)
+  currentPlan           Plan?     @relation("BusinessCurrentPlan", fields: [currentPlanId], references: [id])
+  onboardedAt           DateTime? @map("onboarded_at")
+  isPlatformSuspended   Boolean   @default(false) @map("is_platform_suspended") // kill-switch platform admin
+  featureOverrides      Json?     @map("feature_overrides") // pengecualian fitur khusus tenant ini, mis. {"selfOrder": true}
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   users          User[]
   tables         CafeTable[]
@@ -157,34 +153,34 @@ model ProductOption {
 }
 
 model Order {
-  id            Int       @id @default(autoincrement())
-  businessId    Int       @map("business_id")
-  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  orderNumber   String    @unique @map("order_number")
-  clientOrderId String    @unique @map("client_order_id")
-  tableId       Int?      @map("table_id")
-  table         CafeTable? @relation(fields: [tableId], references: [id])
-  userId        Int?      @map("user_id")
-  user          User?     @relation(fields: [userId], references: [id])
-  customerName  String?   @map("customer_name")
-  source        String // self_order | pos
-  status        String    @default("diterima") // diterima | diproses | siap | selesai
-  paymentMethod String    @map("payment_method") // cash | qris | ewallet | bank_transfer
-  paymentStatus String    @default("pending") @map("payment_status") // pending | paid | failed
-  subtotal      Decimal   @db.Decimal(14, 2)
-  serviceCharge Decimal   @default(0) @map("service_charge") @db.Decimal(14, 2)
-  tax           Decimal   @default(0) @db.Decimal(14, 2)
-  taxLabel      String?   @map("tax_label")
-  taxBearer     String?   @map("tax_bearer")
+  id                Int        @id @default(autoincrement())
+  businessId        Int        @map("business_id")
+  business          Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orderNumber       String     @unique @map("order_number")
+  clientOrderId     String     @unique @map("client_order_id")
+  tableId           Int?       @map("table_id")
+  table             CafeTable? @relation(fields: [tableId], references: [id])
+  userId            Int?       @map("user_id")
+  user              User?      @relation(fields: [userId], references: [id])
+  customerName      String?    @map("customer_name")
+  source            String // self_order | pos
+  status            String     @default("diterima") // diterima | diproses | siap | selesai
+  paymentMethod     String     @map("payment_method") // cash | qris | ewallet | bank_transfer
+  paymentStatus     String     @default("pending") @map("payment_status") // pending | paid | failed
+  subtotal          Decimal    @db.Decimal(14, 2)
+  serviceCharge     Decimal    @default(0) @map("service_charge") @db.Decimal(14, 2)
+  tax               Decimal    @default(0) @db.Decimal(14, 2)
+  taxLabel          String?    @map("tax_label")
+  taxBearer         String?    @map("tax_bearer")
   // Snapshot platform fee + estimasi MDR saat order dibuat (config admin bisa berubah belakangan).
   // Fee hanya untuk self_order non-tunai; cash & manual order selalu 0.
-  platformFee       Decimal @default(0) @map("platform_fee") @db.Decimal(14, 2)
-  platformFeeBearer String? @map("platform_fee_bearer") // customer | cafe
-  mdrFee            Decimal @default(0) @map("mdr_fee") @db.Decimal(14, 2) // estimasi tabel resmi Midtrans
-  total         Decimal   @db.Decimal(14, 2)
-  syncStatus    String    @default("synced") @map("sync_status") // pending | syncing | synced | failed
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  platformFee       Decimal    @default(0) @map("platform_fee") @db.Decimal(14, 2)
+  platformFeeBearer String?    @map("platform_fee_bearer") // customer | cafe
+  mdrFee            Decimal    @default(0) @map("mdr_fee") @db.Decimal(14, 2) // estimasi tabel DOKU
+  total             Decimal    @db.Decimal(14, 2)
+  syncStatus        String     @default("synced") @map("sync_status") // pending | syncing | synced | failed
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
 
   items      OrderItem[]
   payments   Payment[]
@@ -210,17 +206,17 @@ model OrderItem {
 }
 
 model Payment {
-  id         Int       @id @default(autoincrement())
-  businessId Int       @map("business_id")
-  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  orderId    Int       @map("order_id")
-  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  method     String // cash | qris | ewallet | bank_transfer
-  status     String // pending | paid | failed
-  amount     Decimal   @db.Decimal(14, 2)
-  gateway     String? // manual | midtrans
+  id          Int       @id @default(autoincrement())
+  businessId  Int       @map("business_id")
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orderId     Int       @map("order_id")
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method      String // cash | qris | ewallet | bank_transfer
+  status      String // pending | paid | failed
+  amount      Decimal   @db.Decimal(14, 2)
+  gateway     String? // manual | doku (legacy "midtrans" terbaca sebagai histori)
   reference   String?
-  gatewayData Json?   @map("gateway_data") // qrUrl, vaNumber, deeplink, raw response
+  gatewayData Json?     @map("gateway_data") // qrUrl, vaNumber, deeplink, raw response
   paidAt      DateTime? @map("paid_at")
   createdAt   DateTime  @default(now()) @map("created_at")
 
@@ -297,9 +293,9 @@ model Plan {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  subscriptions    Subscription[]
+  subscriptions     Subscription[]
   currentBusinesses Business[]     @relation("BusinessCurrentPlan")
-  leads            Lead[]
+  leads             Lead[]
 
   @@map("plans")
 }
@@ -323,20 +319,20 @@ model Subscription {
 }
 
 model Invoice {
-  id             Int          @id @default(autoincrement())
-  businessId     Int          @map("business_id")
-  business       Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  subscriptionId Int?         @map("subscription_id")
+  id             Int           @id @default(autoincrement())
+  businessId     Int           @map("business_id")
+  business       Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subscriptionId Int?          @map("subscription_id")
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
-  invoiceNumber  String       @unique @map("invoice_number")
-  amount         Decimal      @db.Decimal(14, 2)
-  status         String       @default("unpaid") // unpaid | paid | overdue | void
-  periodStart    DateTime?    @map("period_start") @db.Date
-  periodEnd      DateTime?    @map("period_end") @db.Date
-  dueDate        DateTime?    @map("due_date") @db.Date
-  paidAt         DateTime?    @map("paid_at")
-  paidNote       String?      @map("paid_note")
-  createdAt      DateTime     @default(now()) @map("created_at")
+  invoiceNumber  String        @unique @map("invoice_number")
+  amount         Decimal       @db.Decimal(14, 2)
+  status         String        @default("unpaid") // unpaid | paid | overdue | void
+  periodStart    DateTime?     @map("period_start") @db.Date
+  periodEnd      DateTime?     @map("period_end") @db.Date
+  dueDate        DateTime?     @map("due_date") @db.Date
+  paidAt         DateTime?     @map("paid_at")
+  paidNote       String?       @map("paid_note")
+  createdAt      DateTime      @default(now()) @map("created_at")
 
   @@map("invoices")
 }
@@ -404,13 +400,13 @@ model LandingSection {
 // Token reset password owner via link email (sekali pakai, kedaluwarsa 1 jam).
 // Yang disimpan hanya hash sha256 token — token asli hanya ada di link email.
 model PasswordResetToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int      @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   @@map("password_reset_tokens")
 }

@@ -4,8 +4,8 @@ const ALG = "aes-256-gcm";
 const IV_LEN = 12;
 
 function getKey(): Buffer {
-  const secret = process.env.MIDTRANS_KEY_ENCRYPTION_SECRET;
-  if (!secret) throw new Error("MIDTRANS_KEY_ENCRYPTION_SECRET belum di-set di environment (.env)");
+  const secret = process.env.ENCRYPTION_SECRET || process.env.DOKU_KEY_ENCRYPTION_SECRET;
+  if (!secret) throw new Error("ENCRYPTION_SECRET belum di-set di environment (.env)");
   return crypto.createHash("sha256").update(secret).digest();
 }
 
