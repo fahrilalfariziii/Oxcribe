@@ -66,8 +66,8 @@ publicRouter.get(
 
     const midtransMode = (table.business as unknown as { midtransMode?: string }).midtransMode ?? "global";
     const hasCustomKey = Boolean((table.business as unknown as { midtransServerKeyEnc?: string }).midtransServerKeyEnc);
-    // Flag Pajak & Biaya OFF = paksa pajak & service NOL di response publik
-    // agar cart self-order selalu hitung total = subtotal murni.
+    // Flag granular OFF = paksa komponen NOL di response publik
+    // agar cart self-order hitung total murni untuk komponen itu.
     // Sertakan flags penuh agar FE bisa tampilkan state "Self-order nonaktif" dkk.
     let flags: Record<string, boolean> = {};
     try {
@@ -75,7 +75,8 @@ publicRouter.get(
     } catch {
       flags = {};
     }
-    const taxAndFeesOn = isFeatureOn(flags, FEATURES.TAX_AND_FEES);
+    const taxOn = isFeatureOn(flags, FEATURES.TAX_FEES);
+    const svcOn = isFeatureOn(flags, FEATURES.SERVICE_CHARGE);
     res.json({
       table: {
         id: table.id,
@@ -88,14 +89,14 @@ publicRouter.get(
         name: table.business.name,
         tagline: table.business.tagline,
         logoUrl: table.business.logoUrl,
-        taxEnabled: taxAndFeesOn ? table.business.taxEnabled : false,
+        taxEnabled: taxOn ? table.business.taxEnabled : false,
         taxLabel: table.business.taxLabel,
-        taxRate: taxAndFeesOn ? table.business.taxRate : 0,
+        taxRate: taxOn ? table.business.taxRate : 0,
         taxBearer: table.business.taxBearer,
-        serviceChargeEnabled: table.business.serviceChargeEnabled,
-        serviceChargeRate: table.business.serviceChargeRate,
+        serviceChargeEnabled: svcOn ? table.business.serviceChargeEnabled : false,
+        serviceChargeRate: svcOn ? table.business.serviceChargeRate : 0,
         serviceChargeMode: (table.business as unknown as { serviceChargeMode?: string }).serviceChargeMode ?? "percent",
-        serviceChargeFlat: (table.business as unknown as { serviceChargeFlat?: unknown }).serviceChargeFlat ?? 0,
+        serviceChargeFlat: svcOn ? ((table.business as unknown as { serviceChargeFlat?: unknown }).serviceChargeFlat ?? 0) : 0,
         // Config platform fee self-order non-tunai (per kafe, dari Platform Admin).
         platformFeeEnabled: (table.business as unknown as { platformFeeEnabled?: boolean }).platformFeeEnabled ?? false,
         platformFeeMode: (table.business as unknown as { platformFeeMode?: string }).platformFeeMode ?? "percent",

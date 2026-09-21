@@ -2,9 +2,9 @@
 // PENTING: taxRate & serviceChargeRate disimpan sebagai angka PERSEN (mis. 10 = 10%), sama seperti Business.taxRate di frontend/src/mock/data.ts — BUKAN pecahan 0..1.
 //
 //   service  = persen subtotal | flat per transaksi  (jika serviceChargeEnabled;
-//             INDEPENDEN dari pajak & flag taxAndFees — owner bebas on/off)
+//             butuh flag serviceCharge dari admin + toggle owner)
 //   taxBase  = subtotal + service
-//   tax      = taxBase * (taxRate / 100)               (jika taxEnabled)
+//   tax      = taxBase * (taxRate / 100)               (jika taxEnabled + flag taxFees dari admin)
 //   platformFee = persen subtotal | flat              (khusus self_order non-tunai, config admin)
 //   total    = subtotal + service + (taxBearer === 'cafe' ? 0 : tax)
 //              + (platformFeeBearer === 'cafe' ? 0 : platformFee)

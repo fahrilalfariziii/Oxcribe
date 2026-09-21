@@ -1,5 +1,0 @@
-# Servopay Platform Admin (internal, bukan milik tenant)
-# Dev: http://localhost:5175
-
-# Base URL backend.
-VITE_API_BASE_URL=http://localhost:4000

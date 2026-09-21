@@ -39,8 +39,8 @@ type Detail = {
   }[]
 }
 
-// Kanon full kill-switch (offlineSync disengaja dikecualikan; taxFull lawas diganti taxAndFees).
-const KNOWN_FLAGS = ['selfOrder', 'tableManagement', 'inventory', 'analyticsFull', 'salesType', 'performanceItem', 'exportCsv', 'themePreset', 'themeCustom', 'taxAndFees']
+// Kanon full kill-switch (offlineSync disengaja dikecualikan; taxAndFees lawas hanya alias baca).
+const KNOWN_FLAGS = ['selfOrder', 'tableManagement', 'inventory', 'analyticsFull', 'salesType', 'performanceItem', 'exportCsv', 'themePreset', 'themeCustom', 'serviceCharge', 'taxFees']
 
 const FLAG_HINTS: Record<string, string> = {
   selfOrder: 'Checkout QR pelanggan (OFF = order publik 403)',
@@ -52,7 +52,9 @@ const FLAG_HINTS: Record<string, string> = {
   exportCsv: 'Tombol ekspor CSV owner',
   themePreset: 'Preset tema sekali-klik',
   themeCustom: 'Kustom penuh tema (warna/font/gambar)',
-  taxAndFees: 'Pajak & Biaya (OFF = total = subtotal murni)',
+  serviceCharge: 'Service Charge owner (OFF = service NOL di order baru)',
+  taxFees: 'Pajak owner (OFF = pajak NOL di order baru)',
+  taxAndFees: 'LEGACY — alias lama, menurunkan ke serviceCharge + taxFees bila keduanya belum diatur',
 }
 
 export function TenantDetailPage() {
@@ -67,7 +69,7 @@ export function TenantDetailPage() {
   const [planCode, setPlanCode] = useState('')
   const [status, setStatus] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [overrideKey, setOverrideKey] = useState('taxAndFees')
+  const [overrideKey, setOverrideKey] = useState('serviceCharge')
   const [overrideValue, setOverrideValue] = useState('true')
   const [expandedAudit, setExpandedAudit] = useState<number | null>(null)
   // Form platform fee self-order non-tunai (per kafe, hasil kerja sama).
@@ -253,7 +255,7 @@ export function TenantDetailPage() {
               const netQrisCafe = exSubtotal - exFee - Math.round(exSubtotal * 0.007)
               return (
                 <>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     <label className="flex items-center gap-2 text-sm text-slate-700">
                       <input type="checkbox" checked={feeEnabled} onChange={(e) => setFeeEnabled(e.target.checked)} disabled={!canManageFeatures} />
                       Fee aktif

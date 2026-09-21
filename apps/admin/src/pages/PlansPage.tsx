@@ -14,7 +14,8 @@ const FEATURE_TOGGLES: { key: string; label: string; hint: string }[] = [
   { key: 'exportCsv', label: 'Export CSV', hint: 'Tombol ekspor laporan owner.' },
   { key: 'themePreset', label: 'Tema Preset', hint: 'Preset sekali-klik self-order.' },
   { key: 'themeCustom', label: 'Tema Kustom', hint: 'Warna/font/gambar custom (Enterprise).' },
-  { key: 'taxAndFees', label: 'Pajak & Biaya', hint: 'OFF = menu hilang & total = subtotal murni.' },
+  { key: 'serviceCharge', label: 'Service Charge', hint: 'Toggle + mode/rate/flat owner. OFF = service NOL.' },
+  { key: 'taxFees', label: 'Pajak', hint: 'Toggle + label/rate/bearer owner. OFF = pajak NOL.' },
 ]
 
 function readFlags(json: string): Record<string, boolean> {
@@ -125,13 +126,16 @@ export function PlansPage() {
                 Flags aktif: {Object.entries(p.featureFlags).filter(([, v]) => v).length} · Limits:{' '}
                 <span className="font-mono">{JSON.stringify(p.limits)}</span>
               </p>
-              <p className="mt-2 text-xs">
-                <span className={`inline-flex items-center rounded-full px-2.5 py-1 font-semibold ${p.featureFlags?.taxAndFees ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-slate-100 text-slate-500 ring-1 ring-slate-600/10'}`}>
-                  Pajak & Biaya: {p.featureFlags?.taxAndFees ? 'ON' : 'OFF'}
-                </span>
-              </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {FEATURE_TOGGLES.filter((f) => f.key !== 'taxAndFees').map((f) => (
+                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${p.featureFlags?.serviceCharge ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-slate-100 text-slate-500 ring-1 ring-slate-600/10'}`}>
+                  Service Charge: {p.featureFlags?.serviceCharge ? 'ON' : 'OFF'}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${p.featureFlags?.taxFees ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-slate-100 text-slate-500 ring-1 ring-slate-600/10'}`}>
+                  Pajak: {p.featureFlags?.taxFees ? 'ON' : 'OFF'}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {FEATURE_TOGGLES.filter((f) => f.key !== 'serviceCharge' && f.key !== 'taxFees').map((f) => (
                   <span
                     key={f.key}
                     title={f.hint}

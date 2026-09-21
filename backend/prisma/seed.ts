@@ -17,7 +17,7 @@ async function main() {
   );
 
   // ---- Business ----
-  // Pajak & Biaya default OFF (flag taxAndFees=false semua paket):
+  // Pajak & Biaya default OFF (flag serviceCharge/taxFees=false semua paket):
   // total murni = subtotal, tanpa tambahan pajak/service.
   const business = await prisma.business.create({
     data: {

@@ -18,7 +18,7 @@ businessRouter.get(
     const business = await prisma.business.findUnique({ where: { id: req.auth!.businessId } });
     if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
     const { midtransServerKeyEnc: _enc, ...safe } = business as unknown as Record<string, unknown> & { midtransServerKeyEnc?: string };
-    // Flag fitur efektif (untuk FE sembunyikan menu, mis. taxAndFees).
+    // Flag fitur efektif (untuk FE sembunyikan menu, mis. serviceCharge/taxFees).
     // Gagal resolve (mis. suspended) -> tetap kembalikan profil tanpa features.
     let features: Record<string, boolean> | undefined;
     try {
@@ -66,7 +66,7 @@ const updateBusinessSchema = z.object({
   serviceChargeMode: z.enum(["percent", "flat"]).optional(),
   serviceChargeFlat: z.coerce.number().min(0).optional(),
   // Bearer platform fee boleh diubah owner (pilihan di halaman Pajak & Biaya),
-  // tetapi hanya saat flag taxAndFees ON. Nilai persen/flat/enabled HANYA via Platform Admin.
+  // tetapi hanya saat flag taxFees ON. Nilai persen/flat/enabled HANYA via Platform Admin.
   platformFeeBearer: z.enum(["customer", "cafe"]).optional(),
   soundEnabled: z.boolean().optional(),
   openingCash: z.number().min(0).optional(),
@@ -136,15 +136,21 @@ businessRouter.patch(
 
 // PUT /api/business — update profil/identitas/pajak/service charge (khusus owner).
 // Field `theme` di-gate flag themePreset (Starter tanpa tema -> 403 bila mengirim theme).
-// Field pajak (`taxEnabled/taxLabel/taxRate/taxBearer`) di-gate flag taxAndFees
+// Field pajak (`taxEnabled/taxLabel/taxRate/taxBearer`) di-gate flag taxFees
 // (OFF -> 403 bila mengirim field tsb).
-// Field service charge (enabled/rate/mode/flat) SENGAJA tidak di-gate: independen dari
-// pajak & flag — owner bebas on/off kapan saja.
-const TAX_FEE_FIELDS = [
+// Field service charge (enabled/rate/mode/flat) di-gate flag serviceCharge
+// (OFF -> 403 bila mengirim field tsb) — granular per keputusan admin, bukan 1 flag.
+const TAX_FIELDS = [
   "taxEnabled",
   "taxLabel",
   "taxRate",
   "taxBearer",
+] as const;
+const SERVICE_CHARGE_FIELDS = [
+  "serviceChargeEnabled",
+  "serviceChargeRate",
+  "serviceChargeMode",
+  "serviceChargeFlat",
 ] as const;
 businessRouter.put(
   "/",
@@ -162,23 +168,31 @@ businessRouter.put(
       }
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
-    if (TAX_FEE_FIELDS.some((f) => body[f] !== undefined)) {
+    if (TAX_FIELDS.some((f) => body[f] !== undefined)) {
       const { flags } = await getBusinessFeatures(req.auth!.businessId);
-      if (!isFeatureOn(flags, FEATURES.TAX_AND_FEES)) {
+      if (!isFeatureOn(flags, FEATURES.TAX_FEES)) {
         throw AppError.forbidden(
-          "Fitur Pajak & Biaya sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
+          "Fitur Pajak sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
+        );
+      }
+    }
+    if (SERVICE_CHARGE_FIELDS.some((f) => body[f] !== undefined)) {
+      const { flags } = await getBusinessFeatures(req.auth!.businessId);
+      if (!isFeatureOn(flags, FEATURES.SERVICE_CHARGE)) {
+        throw AppError.forbidden(
+          "Fitur Service Charge sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
         );
       }
     }
     // Bearer fee aplikasi keputusan owner — lolos bila flag pajak ON *atau* fee sedang menyala.
-    // (Halaman Pajak & Biaya ikut terbuka saat fee on, walau flag pajak mati.)
+    // (Halaman Pajak & Biaya ikut terbuka saat fee on, walau kedua flag mati.)
     if (body.platformFeeBearer !== undefined) {
       const { flags } = await getBusinessFeatures(req.auth!.businessId);
       const biz = await prisma.business.findUnique({
         where: { id: req.auth!.businessId },
         select: { platformFeeEnabled: true },
       });
-      if (!isFeatureOn(flags, FEATURES.TAX_AND_FEES) && !biz?.platformFeeEnabled) {
+      if (!isFeatureOn(flags, FEATURES.TAX_FEES) && !biz?.platformFeeEnabled) {
         throw AppError.forbidden(
           "Fitur Pajak & Biaya sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
         );

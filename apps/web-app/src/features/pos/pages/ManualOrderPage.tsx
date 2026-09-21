@@ -5,6 +5,7 @@ import { api } from '../../../lib/api'
 import { playShortConfirmBeep, unlockAudioOnGesture } from '../../../lib/sound'
 import type { CartItem, Product } from '../../../shared/types'
 import { formatRupiah } from '../../../shared/lib/format'
+import { isFeatureOn } from '../../../shared/lib/features'
 import { Button } from '../../../shared/components/ui'
 
 export function ManualOrderPage() {
@@ -82,10 +83,9 @@ export function ManualOrderPage() {
   }
 
   // Kalkulasi Ringkasan Total — sinkron dengan placeOrder (PB1/service + bearer).
-  // Service charge independen dari pajak & flag (owner bebas on/off).
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0)
-  const taxFeatureOn = business.features ? business.features.taxAndFees === true : false
-  const serviceCharge = cart.length > 0 && business.serviceChargeEnabled
+  const taxFeatureOn = isFeatureOn(business, 'taxFees')
+  const serviceCharge = cart.length > 0 && isFeatureOn(business, 'serviceCharge') && business.serviceChargeEnabled
     ? (business.serviceChargeMode === 'flat'
       ? Math.max(0, Math.round(business.serviceChargeFlat))
       : Math.round(subtotal * (Math.min(100, Math.max(0, business.serviceChargeRate)) / 100)))

@@ -60,9 +60,9 @@ export function OwnerSidebar() {
   const { business, logout } = useCafe()
   const navigate = useNavigate()
   // Full kill-switch (kecuali offlineSync): tiap menu mengikuti flag efektif.
-  // taxAndFees fail-closed (default OFF); flag lain fail-open bila key hilang.
-  // Link Pajak & Biaya ikut tampil bila platform fee menyala (section fee ada di halaman itu).
-  const showTax = isFeatureOn(business, 'taxAndFees') || business.platformFeeEnabled === true
+  // serviceCharge/taxFees fail-closed (default OFF); flag lain fail-open bila key hilang.
+  // Link Pajak & Biaya tampil bila salah satu sub-flag ON atau platform fee menyala.
+  const showTax = isFeatureOn(business, 'serviceCharge') || isFeatureOn(business, 'taxFees') || business.platformFeeEnabled === true
   const showTables = isFeatureOn(business, 'tableManagement')
   const showPerforma = isFeatureOn(business, 'performanceItem') && isFeatureOn(business, 'analyticsFull')
   const navItems = NAV_ITEMS.map((item) => {

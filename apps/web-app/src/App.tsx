@@ -37,7 +37,7 @@ function RootRedirect() {
 
 // Guard fitur generik (padanan component-mode dari throw redirect() di docs
 // React Router — Context7 /remix-run/react-router): direct URL di-redirect
-// bila flag OFF. taxAndFees fail-closed; flag lain fail-open bila key hilang.
+// bila flag OFF. serviceCharge/taxFees fail-closed; flag lain fail-open bila key hilang.
 function RequireFeature({ flag, fallback, children }: { flag: string | string[]; fallback: string; children: React.ReactNode }) {
   const { business } = useCafe();
   const flags = Array.isArray(flag) ? flag : [flag];
@@ -51,11 +51,11 @@ function RequireFeature({ flag, fallback, children }: { flag: string | string[];
 
 function RequireTaxFeature({ children }: { children: React.ReactNode }) {
   const { business } = useCafe();
-  // Halaman memuat section biaya aplikasi di paling atas — ikut terbuka bila fee menyala
-  // walau flag pajak mati (bearer fee keputusan owner, on/off fee keputusan admin).
+  // Halaman memuat 3 section (fee aplikasi + service + pajak) — terbuka bila
+  // SALAH SATU menyala; section yang flag-nya mati dikunci di dalam halaman.
   const feeOn = business.platformFeeEnabled === true;
-  if (feeOn) return <>{children}</>;
-  return <RequireFeature flag="taxAndFees" fallback="/backoffice/settings/business">{children}</RequireFeature>;
+  if (feeOn || isFeatureOn(business, 'serviceCharge') || isFeatureOn(business, 'taxFees')) return <>{children}</>;
+  return <Navigate to="/backoffice/settings/business" replace />;
 }
 
 export default function App() {

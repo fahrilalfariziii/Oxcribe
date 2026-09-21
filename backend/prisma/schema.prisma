@@ -24,8 +24,8 @@ model Business {
   taxBearer            String   @default("customer") @map("tax_bearer") // customer | cafe
   serviceChargeRate    Decimal  @default(0) @db.Decimal(6, 4) @map("service_charge_rate")
   serviceChargeEnabled Boolean  @default(false) @map("service_charge_enabled")
-  // Service charge independen dari pajak: mode percent (% dari subtotal) atau flat (Rp per transaksi).
-  // Owner bebas on/off kapan saja (tidak ikut flag taxAndFees).
+  // Service charge butuh flag serviceCharge dari admin + toggle owner.
+  // Owner bebas on/off kapan saja setelah flag menyala (independen dari pajak).
   serviceChargeMode    String   @default("percent") @map("service_charge_mode") // percent | flat
   serviceChargeFlat    Decimal  @default(0) @db.Decimal(14, 2) @map("service_charge_flat")
   soundEnabled         Boolean  @default(true) @map("sound_enabled")

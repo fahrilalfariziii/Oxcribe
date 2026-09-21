@@ -61,14 +61,19 @@ export async function createOrder(input: CreateOrderInput) {
   const business = await prisma.business.findUnique({ where: { id: input.businessId } });
   if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
 
-  // Flag Pajak & Biaya: OFF = order baru selalu subtotal murni (0 pajak + 0 service).
-  // Resolve via plans + overrides; fallback OFF bila resolve gagal (fail-closed).
+  // Flag granular Pajak & Biaya: taxFees OFF = paksa pajak NOL,
+  // serviceCharge OFF = paksa service charge NOL di order baru.
+  // Resolve via plans + overrides (+ alias legacy taxAndFees); fallback OFF bila gagal (fail-closed).
   // Memakai isFeatureOn (Context7: plans.featureFlags adalah Jsonirman — merge di getBusinessFeatures).
-  let taxAndFeesOn = false;
+  let taxOn = false;
+  let svcOn = false;
   try {
-    taxAndFeesOn = isFeatureOn((await getBusinessFeatures(input.businessId)).flags, FEATURES.TAX_AND_FEES);
+    const { flags } = await getBusinessFeatures(input.businessId);
+    taxOn = isFeatureOn(flags, FEATURES.TAX_FEES);
+    svcOn = isFeatureOn(flags, FEATURES.SERVICE_CHARGE);
   } catch {
-    taxAndFeesOn = false;
+    taxOn = false;
+    svcOn = false;
   }
 
   const enabled = parseEnabledMethods(business);
@@ -146,14 +151,13 @@ export async function createOrder(input: CreateOrderInput) {
   }, { source: input.source, paymentMethod: input.paymentMethod });
 
   const totals = calculateOrderTotals(subtotal, {
-    // Flag taxAndFees OFF (default) = paksa pajak NOL agar total = subtotal murni.
+    // Flag granular OFF (default) = paksa komponen NOL agar total murni untuk komponen itu.
     // Menang atas nilai DB (data lama yang masih true tetap diabaikan untuk order baru).
-    // Service charge SENGAJA tidak ikut flag: independen, owner bebas on/off kapan saja.
-    taxEnabled: taxAndFeesOn ? business.taxEnabled : false,
-    taxRate: taxAndFeesOn ? Number(business.taxRate) : 0,
+    taxEnabled: taxOn ? business.taxEnabled : false,
+    taxRate: taxOn ? Number(business.taxRate) : 0,
     taxLabel: business.taxLabel,
     taxBearer: business.taxBearer,
-    serviceChargeEnabled: business.serviceChargeEnabled,
+    serviceChargeEnabled: svcOn ? business.serviceChargeEnabled : false,
     serviceChargeRate: Number(business.serviceChargeRate),
     serviceChargeMode: business.serviceChargeMode,
     serviceChargeFlat: Number(business.serviceChargeFlat),

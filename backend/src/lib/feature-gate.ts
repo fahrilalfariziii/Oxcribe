@@ -16,8 +16,15 @@ export const FEATURES = {
   EXPORT_CSV: "exportCsv",
   THEME_PRESET: "themePreset",
   THEME_CUSTOM: "themeCustom",
-  // Pajak & Biaya (tax + service charge). OFF = total murni subtotal.
-  // Dikontrol Platform Admin via plans.feature_flags + featureOverrides.
+  // Pajak & Biaya dipecah granular (bukan 1 flag):
+  // - serviceCharge: toggle + mode/rate/flat Service Charge owner.
+  // - taxFees: toggle + label/rate/bearer Pajak.
+  // OFF = komponen tsb NOL di order baru (total murni untuk komponen itu).
+  // Dikontrol Platform Admin via plans.feature_flags + featureOverrides (default OFF semua paket).
+  SERVICE_CHARGE: "serviceCharge",
+  TAX_FEES: "taxFees",
+  // Legacy: paket/override lama yang hanya punya taxAndFees diturunkan ke kedua
+  // sub-flag (lihat getBusinessFeatures). Jangan pakai untuk kode baru.
   TAX_AND_FEES: "taxAndFees",
 } as const;
 
@@ -57,6 +64,14 @@ export async function getBusinessFeatures(businessId: number): Promise<ResolvedF
   for (const [key, value] of Object.entries(overrides)) {
     if (typeof value === "boolean") flags[key] = value;
   }
+  // Alias legacy: taxAndFees hanya dipakai bila sub-flag belum boolean
+  // (paket/override lama pra-split). Sub-flag eksplisit selalu menang.
+  if (typeof flags[FEATURES.SERVICE_CHARGE] !== "boolean" && typeof flags[FEATURES.TAX_AND_FEES] === "boolean") {
+    flags[FEATURES.SERVICE_CHARGE] = flags[FEATURES.TAX_AND_FEES];
+  }
+  if (typeof flags[FEATURES.TAX_FEES] !== "boolean" && typeof flags[FEATURES.TAX_AND_FEES] === "boolean") {
+    flags[FEATURES.TAX_FEES] = flags[FEATURES.TAX_AND_FEES];
+  }
   return { planCode, flags };
 }
 
@@ -68,12 +83,19 @@ function deny(flag: string) {
 
 /**
  * Cek flag efektif dengan semantik fail-open/closed yang disepakati:
- * - taxAndFees: fail-closed (hilang/undefined = OFF) agar total murni default.
+ * - taxAndFees (legacy), serviceCharge, taxFees: fail-closed (hilang/undefined = OFF)
+ *   agar total murni default.
  * - flag lain: fail-open (hilang/undefined = ON) agar tenant lama yang baris
  *   plans-nya belum punya key baru tidak tiba-tiba terkunci sebelum backfill.
  */
+const FAIL_CLOSED_FLAGS = new Set<string>([
+  FEATURES.TAX_AND_FEES,
+  FEATURES.SERVICE_CHARGE,
+  FEATURES.TAX_FEES,
+]);
+
 export function isFeatureOn(flags: Record<string, boolean>, flag: string): boolean {
-  if (flag === FEATURES.TAX_AND_FEES) return flags[flag] === true;
+  if (FAIL_CLOSED_FLAGS.has(flag)) return flags[flag] === true;
   return flags[flag] !== false;
 }
 

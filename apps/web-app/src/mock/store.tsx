@@ -18,6 +18,7 @@ import {
   seedTables,
 } from './data'
 import { uid } from '../shared/lib/format'
+import { isFeatureOn } from '../shared/lib/features'
 import type {
   Business,
   CafeTable,
@@ -383,9 +384,10 @@ export function CafeProvider({ children }: { children: ReactNode }) {
     try {
       const resolve = await api.resolveTable(qrToken)
       const biz = resolve.business as typeof resolve.business & { features?: Record<string, boolean> }
-      // Flag taxAndFees OFF (default) = paksa pajak & service NOL di state FE
-      // agar cart selalu hitung total = subtotal murni, walau DB lama masih true.
-      const taxOn = biz.features ? biz.features.taxAndFees === true : false
+      // Flag granular OFF (default) = paksa komponen NOL di state FE
+      // agar cart hitung total murni untuk komponen itu, walau DB lama masih true.
+      const taxOn = isFeatureOn({ features: biz.features } as Business, 'taxFees')
+      const svcOn = isFeatureOn({ features: biz.features } as Business, 'serviceCharge')
       setBusiness((prev) => ({
         ...prev,
         id: String(biz.id),
@@ -396,16 +398,16 @@ export function CafeProvider({ children }: { children: ReactNode }) {
         taxLabel: biz.taxLabel as Business['taxLabel'],
         taxRate: taxOn ? Number(biz.taxRate) : 0,
         taxBearer: biz.taxBearer as Business['taxBearer'],
-        serviceChargeEnabled: biz.serviceChargeEnabled,
-        serviceChargeRate: Number(biz.serviceChargeRate),
+        serviceChargeEnabled: svcOn ? biz.serviceChargeEnabled : false,
+        serviceChargeRate: svcOn ? Number(biz.serviceChargeRate) : 0,
         serviceChargeMode: (biz.serviceChargeMode as Business['serviceChargeMode']) ?? 'percent',
-        serviceChargeFlat: Number(biz.serviceChargeFlat ?? 0),
+        serviceChargeFlat: svcOn ? Number(biz.serviceChargeFlat ?? 0) : 0,
         platformFeeEnabled: biz.platformFeeEnabled ?? false,
         platformFeeMode: (biz.platformFeeMode as Business['platformFeeMode']) ?? 'percent',
         platformFeePercent: Number(biz.platformFeePercent ?? 0),
         platformFeeFlat: Number(biz.platformFeeFlat ?? 0),
         platformFeeBearer: (biz.platformFeeBearer as Business['platformFeeBearer']) ?? 'customer',
-        features: biz.features ?? { taxAndFees: false },
+        features: biz.features ?? { taxAndFees: false, serviceCharge: false, taxFees: false },
         enabledPaymentMethods: (biz.enabledPaymentMethods as PaymentMethod[]) ?? prev.enabledPaymentMethods,
         paymentSettings: (biz.paymentSettings as Record<string, PaymentSettings>) ?? prev.paymentSettings,
         theme: normalizeTheme(biz.theme),
@@ -576,10 +578,9 @@ export function CafeProvider({ children }: { children: ReactNode }) {
 
   const placeOrder = useCallback<CafeStore['placeOrder']>(({ items, customerName, tableId, tableNumber, paymentMethod, source, offline }) => {
     const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0)
-    // Flag taxAndFees OFF = pajak fallback lokal pun harus NOL (fail-closed bila features hilang).
-    // Service charge SENGAJA independen: tidak ikut flag, owner bebas on/off.
-    const taxOn = business.features ? business.features.taxAndFees === true : false
-    const svcOn = business.serviceChargeEnabled
+    // Flag granular OFF = komponen fallback lokal pun NOL (fail-closed bila features hilang).
+    const taxOn = isFeatureOn(business, 'taxFees')
+    const svcOn = isFeatureOn(business, 'serviceCharge') && business.serviceChargeEnabled
     const tEnabled = taxOn && business.taxEnabled
     const serviceCharge = svcOn
       ? (business.serviceChargeMode === 'flat'
@@ -962,11 +963,13 @@ export function CafeProvider({ children }: { children: ReactNode }) {
 
   // Muat profil bisnis dari BE (dipakai halaman kasir yang tidak punya qrToken).
   // Decimal dari Prisma datang sebagai string — konversi ke number agar aman.
-  // Flag taxAndFees OFF (default) = paksa pajak & service NOL agar total = subtotal murni.
+  // Flag granular OFF (default) = paksa komponen NOL agar total murni untuk komponen itu.
   const refreshBusinessFromBackend = useCallback(async (): Promise<void> => {
     const b = await api.getBusiness()
     const feats = (b.features as Record<string, boolean> | undefined) ?? undefined
-    const taxOn = feats ? feats.taxAndFees === true : false
+    const bizForFlags = { features: feats } as Business
+    const taxOn = isFeatureOn(bizForFlags, 'taxFees')
+    const svcOn = isFeatureOn(bizForFlags, 'serviceCharge')
     setBusiness((prev) => ({
       ...prev,
       id: String(b.id ?? prev.id),
@@ -980,16 +983,16 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       taxLabel: (b.taxLabel as Business['taxLabel']) ?? prev.taxLabel,
       taxRate: taxOn ? (b.taxRate !== undefined ? Number(b.taxRate) : prev.taxRate) : 0,
       taxBearer: (b.taxBearer as Business['taxBearer']) ?? prev.taxBearer,
-      serviceChargeEnabled: (typeof b.serviceChargeEnabled === 'boolean' ? b.serviceChargeEnabled : prev.serviceChargeEnabled),
-      serviceChargeRate: (b.serviceChargeRate !== undefined ? Number(b.serviceChargeRate) : prev.serviceChargeRate),
+      serviceChargeEnabled: svcOn ? (typeof b.serviceChargeEnabled === 'boolean' ? b.serviceChargeEnabled : prev.serviceChargeEnabled) : false,
+      serviceChargeRate: svcOn ? (b.serviceChargeRate !== undefined ? Number(b.serviceChargeRate) : prev.serviceChargeRate) : 0,
       serviceChargeMode: (b.serviceChargeMode as Business['serviceChargeMode']) ?? prev.serviceChargeMode,
-      serviceChargeFlat: (b.serviceChargeFlat !== undefined ? Number(b.serviceChargeFlat) : prev.serviceChargeFlat),
+      serviceChargeFlat: svcOn ? (b.serviceChargeFlat !== undefined ? Number(b.serviceChargeFlat) : prev.serviceChargeFlat) : 0,
       platformFeeEnabled: typeof b.platformFeeEnabled === 'boolean' ? b.platformFeeEnabled : prev.platformFeeEnabled,
       platformFeeMode: (b.platformFeeMode as Business['platformFeeMode']) ?? prev.platformFeeMode,
       platformFeePercent: b.platformFeePercent !== undefined ? Number(b.platformFeePercent) : prev.platformFeePercent,
       platformFeeFlat: b.platformFeeFlat !== undefined ? Number(b.platformFeeFlat) : prev.platformFeeFlat,
       platformFeeBearer: (b.platformFeeBearer as Business['platformFeeBearer']) ?? prev.platformFeeBearer,
-      features: feats ?? { taxAndFees: false },
+      features: feats ?? { taxAndFees: false, serviceCharge: false, taxFees: false },
       soundEnabled: typeof b.soundEnabled === 'boolean' ? b.soundEnabled : prev.soundEnabled,
       openingCash: b.openingCash !== undefined && b.openingCash !== null ? Number(b.openingCash) : prev.openingCash,
       closingCash: b.closingCash !== undefined ? (b.closingCash === null ? null : Number(b.closingCash)) : prev.closingCash,

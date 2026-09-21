@@ -6,6 +6,7 @@ import { Button } from "../../../shared/components/ui";
 import {IconBack, IconMinus, IconPlus,} from "../../../shared/components/icons";
 import { useCafe } from "../../../mock/store";
 import { normalizeTheme } from "../../../shared/types";
+import { isFeatureOn } from "../../../shared/lib/features";
 
 interface Props {
   tableNumber: string;
@@ -63,9 +64,10 @@ export function CartScreen({
     if (payMethod === 'bank_transfer' && !effectiveAllowed.includes(selectedBank) && visibleBanks.length > 0) onSelectBank(visibleBanks[0].id)
   }, [effectiveAllowed.join(','), payMethod])
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-  const taxFeatureOn = business.features ? business.features.taxAndFees === true : false
-  // Service charge independen dari pajak & flag (owner bebas on/off).
-  const serviceCharge = cart.length > 0 && business.serviceChargeEnabled
+  const taxFeatureOn = isFeatureOn(business, 'taxFees')
+  // Service charge ikut flag granular (admin) + toggle owner.
+  const svcFeatureOn = isFeatureOn(business, 'serviceCharge')
+  const serviceCharge = cart.length > 0 && svcFeatureOn && business.serviceChargeEnabled
     ? (business.serviceChargeMode === 'flat'
       ? Math.max(0, Math.round(business.serviceChargeFlat))
       : Math.round(subtotal * (Math.min(100, Math.max(0, business.serviceChargeRate)) / 100)))

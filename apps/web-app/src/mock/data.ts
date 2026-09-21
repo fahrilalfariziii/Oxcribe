@@ -65,7 +65,7 @@ export const seedBusiness: Business = {
   platformFeePercent: 0,
   platformFeeFlat: 0,
   platformFeeBearer: 'customer',
-  features: { taxAndFees: false },
+  features: { taxAndFees: false, serviceCharge: false, taxFees: false },
   soundEnabled: true,
   openingCash: 0,
   closingCash: null,

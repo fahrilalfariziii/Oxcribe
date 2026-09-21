@@ -99,8 +99,8 @@ export interface Business {
   platformFeeFlat: number
   platformFeeBearer: TaxBearer // 'customer' = di atas total | 'cafe' = ditanggung kafe
   // Flag fitur efektif dari backend (plans + overrides).
-  // taxAndFees=false (default) = menu Pajak & Biaya disembunyikan & total = subtotal murni.
-  features?: { taxAndFees?: boolean } & Record<string, boolean | undefined>
+  // serviceCharge/taxFees=false (default) = section tsb dikunci & komponen NOL di total.
+  features?: { serviceCharge?: boolean; taxFees?: boolean; taxAndFees?: boolean } & Record<string, boolean | undefined>
   soundEnabled: boolean
   openingCash: number
   closingCash: number | null

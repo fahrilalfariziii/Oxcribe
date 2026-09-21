@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useCafe } from '../../../../mock/store'
+import { isFeatureOn } from '../../../../shared/lib/features'
 import { Button, Field } from '../../../../shared/components/ui'
 
 export function TaxSettingsPage() {
   const { business, saveBusinessSettings } = useCafe()
+  // Granular admin: section dikunci individu bila flag-nya OFF.
+  const svcAllowed = isFeatureOn(business, 'serviceCharge')
+  const taxAllowed = isFeatureOn(business, 'taxFees')
   const [form, setForm] = useState({
     taxEnabled: business.taxEnabled ?? false,
     taxLabel: business.taxLabel || 'PB1' as const,
@@ -42,17 +46,28 @@ export function TaxSettingsPage() {
     setSaving(true)
     setSaveError(null)
     try {
-      await saveBusinessSettings({
-        taxEnabled: form.taxEnabled,
-        taxLabel: form.taxLabel as 'PB1' | 'PBJT' | 'PPN',
-        taxRate: parsedTax,
-        taxBearer: form.taxBearer,
-        serviceChargeEnabled: form.serviceChargeEnabled,
-        serviceChargeRate: parsedService,
-        serviceChargeMode: form.serviceChargeMode,
-        serviceChargeFlat: parsedServiceFlat,
-        platformFeeBearer: form.platformFeeBearer,
-      })
+      // Hanya kirim field yang flag-nya ON — field terkunci dikirim = 403 dari BE.
+      const payload: Record<string, unknown> = {}
+      if (svcAllowed) {
+        Object.assign(payload, {
+          serviceChargeEnabled: form.serviceChargeEnabled,
+          serviceChargeRate: parsedService,
+          serviceChargeMode: form.serviceChargeMode,
+          serviceChargeFlat: parsedServiceFlat,
+        })
+      }
+      if (taxAllowed) {
+        Object.assign(payload, {
+          taxEnabled: form.taxEnabled,
+          taxLabel: form.taxLabel as 'PB1' | 'PBJT' | 'PPN',
+          taxRate: parsedTax,
+          taxBearer: form.taxBearer,
+        })
+      }
+      if (taxAllowed || feeOn) {
+        payload.platformFeeBearer = form.platformFeeBearer
+      }
+      await saveBusinessSettings(payload)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err) {
@@ -142,8 +157,15 @@ export function TaxSettingsPage() {
           <p className="text-xs text-stone">Berdiri sendiri — tidak terpengaruh pajak aktif/nonaktif. Selalu ditambah ke total pelanggan.</p>
         </div>
 
-        {/* Toggle Service Charge — milik owner, independen dari pajak */}
-        <div className="flex items-center justify-between rounded-xl border border-sand bg-cream/40 p-4">
+        {!svcAllowed && (
+          <div className="flex items-center gap-2 rounded-lg bg-sand/40 p-3 text-xs font-semibold text-stone border border-clay/40">
+            <span className="material-symbols-outlined text-[18px]">lock</span>
+            <span>Service Charge belum aktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan.</span>
+          </div>
+        )}
+
+        {/* Toggle Service Charge — milik owner, butuh flag serviceCharge dari admin */}
+        <div className={`flex items-center justify-between rounded-xl border border-sand bg-cream/40 p-4 ${!svcAllowed ? 'opacity-40 pointer-events-none' : ''}`}>
           <div>
             <p className="text-sm font-semibold text-black">Aktifkan Service Charge</p>
             <p className="text-xs text-stone">Jika dimatikan, service tidak dihitung sama sekali.</p>
@@ -157,7 +179,7 @@ export function TaxSettingsPage() {
           </button>
         </div>
 
-        <div className={`rounded-xl border border-sand bg-cream/40 p-4 space-y-3 ${!form.serviceChargeEnabled ? 'opacity-40 pointer-events-none' : ''}`}>
+        <div className={`rounded-xl border border-sand bg-cream/40 p-4 space-y-3 ${!form.serviceChargeEnabled || !svcAllowed ? 'opacity-40 pointer-events-none' : ''}`}>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Mode perhitungan</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${form.serviceChargeMode === 'percent' ? 'border-black bg-white' : 'border-clay/40 bg-white'}`}>
@@ -224,6 +246,13 @@ export function TaxSettingsPage() {
           <p className="text-xs text-stone">Atur PB1/PBJT/PPN dan Service Charge. Diterapkan otomatis: subtotal + service → pajak.</p>
         </div>
 
+        {!taxAllowed && (
+          <div className="flex items-center gap-2 rounded-lg bg-sand/40 p-3 text-xs font-semibold text-stone border border-clay/40">
+            <span className="material-symbols-outlined text-[18px]">lock</span>
+            <span>Pajak belum aktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan.</span>
+          </div>
+        )}
+
         {saved && (
           <div className="flex items-center gap-2 rounded-lg bg-[#b8cda9]/30 p-3 text-xs font-semibold text-sage border border-sage/40">
             <span className="material-symbols-outlined text-[18px]">check_circle</span>
@@ -238,7 +267,7 @@ export function TaxSettingsPage() {
         )}
 
         {/* Toggle Pajak */}
-        <div className="flex items-center justify-between rounded-xl border border-sand bg-cream/40 p-4">
+        <div className={`flex items-center justify-between rounded-xl border border-sand bg-cream/40 p-4 ${!taxAllowed ? 'opacity-40 pointer-events-none' : ''}`}>
           <div>
             <p className="text-sm font-semibold text-black">Aktifkan Pajak</p>
             <p className="text-xs text-stone">Jika dimatikan, pajak tidak dihitung sama sekali.</p>
@@ -253,7 +282,7 @@ export function TaxSettingsPage() {
         </div>
 
         {/* Opsi Beban Pajak */}
-        <div className={`rounded-xl border border-sand bg-cream/40 p-4 space-y-3 ${!form.taxEnabled ? 'opacity-40 pointer-events-none' : ''}`}>
+        <div className={`rounded-xl border border-sand bg-cream/40 p-4 space-y-3 ${!form.taxEnabled || !taxAllowed ? 'opacity-40 pointer-events-none' : ''}`}>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Pajak dibebankan ke</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${form.taxBearer === 'customer' ? 'border-black bg-white' : 'border-clay/40 bg-white'}`}>
@@ -287,7 +316,7 @@ export function TaxSettingsPage() {
           </div>
         </div>
 
-        <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${!form.taxEnabled ? 'opacity-40 pointer-events-none' : ''}`}>
+        <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${!form.taxEnabled || !taxAllowed ? 'opacity-40 pointer-events-none' : ''}`}>
           <Field label="Jenis Pajak">
             <select
               value={form.taxLabel}
