@@ -52,6 +52,16 @@ model Business {
   onboardedAt           DateTime? @map("onboarded_at")
   isPlatformSuspended   Boolean   @default(false) @map("is_platform_suspended") // kill-switch platform admin
   featureOverrides      Json?     @map("feature_overrides") // pengecualian fitur khusus tenant ini, mis. {"selfOrder": true}
+  // ---- DOKU Sub-Account agregator (wallet-as-a-service V2, per tenant) ----
+  // Routing charge memakai dokuProfileId (additionalInfo.account.id).
+  dokuProfileId              String? @map("doku_profile_id") // profileId sub-account tenant
+  dokuSubAccounts            Json?    @map("doku_sub_accounts") // accounts[] (IDR/Pending/Points + BRI VA statis)
+  dokuSubAccountStatus       String   @default("none") @map("doku_sub_account_status") // none | pending | active | failed
+  dokuSplitRuleId            String?  @map("doku_split_rule_id") // split rule fee platform (opsional)
+  dokuSettlementBankCode     String?  @map("doku_settlement_bank_code")
+  dokuSettlementBankAccount  String?  @map("doku_settlement_bank_account")
+  dokuSettlementBankName     String?  @map("doku_settlement_bank_name")
+  dokuSettlementStatus       String?  @map("doku_settlement_status") // UNVERIFIED | VERIFIED
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 

@@ -7,6 +7,13 @@ import { api } from '../../../lib/api'
 import { subscribeStream } from '../../../lib/stream'
 import { notifyBrowserNewOrder, playNewOrderBeep, unlockAudioOnGesture } from '../../../lib/sound'
 
+// Order manual kasir (gateway "manual") — kasir verifikasi sendiri,
+// boleh Tandai Lunas untuk semua metode. Order gateway (DOKU) tidak.
+function isManualOrder(order: Order): boolean {
+  const gw = (order as unknown as { payments?: { gateway?: string | null }[] }).payments?.[0]?.gateway
+  return gw === 'manual'
+}
+
 // Tab Kategori Pesanan Aktif
 const CATEGORY_TABS: { id: OrderStatus; label: string; }[] = [
   { id: 'diterima', label: 'Diterima' },
@@ -116,8 +123,10 @@ export function OrdersPage() {
     }
   }
   const handlePaid = async (order: Order) => {
-    // Hanya cash yang boleh ditandai manual — non-cash wajib via webhook DOKU.
-    if (order.paymentMethod !== 'cash') return
+    // Boleh ditandai manual bila cash ATAU order manual kasir (gateway manual,
+    // kasir verifikasi sendiri via QRIS statis/transfer). Non-cash via gateway
+    // (DOKU) tetap wajib via webhook/polling.
+    if (order.paymentMethod !== 'cash' && !isManualOrder(order)) return
     setPayError(null)
     setPayingId(order.id)
     try {
@@ -348,8 +357,8 @@ export function OrdersPage() {
                 {payError && payingId === order.id && (
                   <p className="rounded-lg border border-[#ba1a1a]/30 bg-[#ba1a1a]/10 px-3 py-2 text-[11px] font-medium text-[#ba1a1a]">{payError}</p>
                 )}
-                {/* Non-cash pending: animasi menunggu pembayaran pelanggan (tanpa tombol lunas) */}
-                {order.paymentStatus !== 'paid' && order.paymentMethod !== 'cash' && activeTab !== 'selesai' && (
+                {/* Non-cash via gateway: animasi menunggu pembayaran (tanpa tombol lunas). Order manual kasir langsung dapat tombol Tandai Lunas di bawah. */}
+                {order.paymentStatus !== 'paid' && order.paymentMethod !== 'cash' && !isManualOrder(order) && activeTab !== 'selesai' && (
                   <div className="flex items-center gap-2 rounded-lg border border-sand bg-cream px-3 py-2">
                     <span className="material-symbols-outlined animate-spin text-[18px] text-sage">progress_activity</span>
                     <span className="flex-1 text-[11px] font-medium text-stone">Menunggu pembayaran pelanggan…</span>
@@ -364,7 +373,7 @@ export function OrdersPage() {
                   </div>
                 )}
                 <div className="flex gap-2">
-                  {order.paymentStatus !== 'paid' && order.paymentMethod === 'cash' && activeTab !== 'selesai' && (
+                  {order.paymentStatus !== 'paid' && (order.paymentMethod === 'cash' || isManualOrder(order)) && activeTab !== 'selesai' && (
                     <button
                       className="flex-1 rounded-lg bg-sand px-3 py-2 text-xs font-semibold text-black hover:bg-[#e6e2d9] transition-colors disabled:opacity-60"
                       disabled={payingId === order.id}

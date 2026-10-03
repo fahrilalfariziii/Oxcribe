@@ -90,8 +90,10 @@ ordersRouter.post(
       items: data.items,
     });
 
-    // Mode kasir record-only: tanpa DOKU, simpan tendered/change, tetap pending.
-    if (data.recordOnly) {
+    // Frontoffice manual SELALU manual (tanpa gateway): kasir verifikasi sendiri
+    // (tunai / QRIS statis / transfer rekening kafe), lalu lunasi via Tandai Lunas.
+    // Tidak ada charge DOKU, polling, maupun status menunggu dari gateway di sini.
+    {
       const total = Number(order.total);
       if (data.paymentMethod === "cash" && data.tendered !== undefined && data.tendered < total) {
         // Batalkan order yang baru dibuat agar tidak ada transaksi gantung
@@ -103,7 +105,7 @@ ordersRouter.post(
         where: { orderId: order.id },
         data: {
           gateway: "manual",
-          gatewayData: { recordOnly: true, tendered: data.tendered ?? null, change: change ?? null } as unknown as object,
+          gatewayData: { recordOnly: data.recordOnly, tendered: data.tendered ?? null, change: change ?? null } as unknown as object,
         },
       });
       const recorded = await prisma.order.findUnique({
@@ -112,29 +114,6 @@ ordersRouter.post(
       });
       return res.status(201).json(recorded ?? order);
     }
-
-    // Sama seperti public: non-cash SELALU via DOKU SNAP (global)
-    if ((data.paymentMethod as string) !== "cash") {
-      try {
-        const { createDokuChargeForMethod } = await import("../services/doku.service");
-        const charge = await createDokuChargeForMethod({
-          method: data.paymentMethod as "qris" | "bank_transfer",
-          orderNumber: order.orderNumber,
-          grossAmount: Number(order.total),
-          customerName: data.customerName ?? undefined,
-          selectedBank: (data as { selectedBank?: string }).selectedBank,
-        });
-        if (charge) {
-          await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gateway: "doku", reference: charge.referenceNo ?? charge.partnerReferenceNo, gatewayData: charge as unknown as object } });
-          const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true, statusLogs: true, table: true } });
-          if (refreshed) return res.status(201).json(refreshed);
-        }
-      } catch (e) {
-        console.error("[DOKU manual charge] gagal:", e);
-      }
-    }
-
-    res.status(201).json(order);
   })
 );
 

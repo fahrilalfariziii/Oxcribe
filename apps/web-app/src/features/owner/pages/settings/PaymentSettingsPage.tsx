@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useCafe } from '../../../../mock/store'
-import { Button } from '../../../../shared/components/ui'
+import { Button, Field, TextInput } from '../../../../shared/components/ui'
 import type { PaymentMethod, PaymentSettings } from '../../../../shared/types'
 
 type MethodMeta = { id: PaymentMethod; label: string; sub: string; icon: string }
@@ -118,7 +118,12 @@ export function PaymentSettingsPage() {
                 {isEnabled && (
                   <div className="mt-4 space-y-3 border-t border-sand pt-4">
                     {m.id==='qris' && (
-                      <p className="rounded-lg bg-cream/60 border border-sand p-3 text-[11px] text-stone">QR bisa di-scan e-wallet apapun (standar BI).</p>
+                      <>
+                        <p className="rounded-lg bg-cream/60 border border-sand p-3 text-[11px] text-stone">QR bisa di-scan e-wallet apapun (standar BI).</p>
+                        <Field label="URL Gambar QRIS Statis Kafe (untuk pembayaran manual di kasir)">
+                          <TextInput value={cfg.qrImageUrl ?? ''} onChange={(e)=>updateSetting(m.id, { qrImageUrl: e.target.value })} placeholder="https://…/qris-kafe.png" />
+                        </Field>
+                      </>
                     )}
 
                     {m.id==='bank_transfer' && (
@@ -139,6 +144,7 @@ export function PaymentSettingsPage() {
                           })}
                         </div>
                         <p className="mt-2 text-[11px] text-stone">Semua bank memakai Virtual Account DOKU (nomor VA unik per transaksi).</p>
+                        <p className="mt-2 text-[11px] text-stone">Rekening kafe diatur di Profil Bisnis → tab Rekening.</p>
                       </div>
                     )}
                   </div>

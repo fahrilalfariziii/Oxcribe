@@ -179,6 +179,32 @@ export const platformApi = {
       { method: 'PATCH', body: JSON.stringify(payload) },
     ),
 
+  // DOKU Sub-Account agregator (per tenant, wallet-as-a-service V2)
+  getDokuSubAccount: (id: number | string) =>
+    request<{
+      profileId: string | null
+      subAccounts: unknown
+      subAccountStatus: string
+      splitRuleId: string | null
+      settlement: Record<string, string | null>
+      balance: unknown
+    }>(`/api/platform/tenants/${id}/doku-subaccount`),
+  registerDokuSubAccount: (id: number | string, payload?: { name?: string; email?: string; phone?: string }) =>
+    request<{ status: string; reused: boolean; profileId: string; subAccountStatus: string }>(
+      `/api/platform/tenants/${id}/doku-subaccount/register`,
+      { method: 'POST', body: JSON.stringify(payload ?? {}) },
+    ),
+  transferDokuFunds: (id: number | string, payload: { amount: number; fromAccount?: string; beneficiaryBankCode?: string; beneficiaryAccountNumber?: string; remark?: string }) =>
+    request<{ status: string; inquiry: unknown; paid: unknown }>(`/api/platform/tenants/${id}/doku-subaccount/transfer`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  createDokuSplitRule: (id: number | string, rules: { type: 'PERCENTAGE' | 'FLAT'; value: number; currency?: string; accountNumber: string | number }[]) =>
+    request<{ status: string; splitRuleId: string }>(`/api/platform/tenants/${id}/doku-subaccount/split-rule`, {
+      method: 'POST',
+      body: JSON.stringify({ rules }),
+    }),
+
   getPlans: () => request<{ plans: PlanRow[] }>('/api/platform/plans'),
   updatePlan: (code: string, payload: Record<string, unknown>) =>
     request<PlanRow>(`/api/platform/plans/${code}`, { method: 'PUT', body: JSON.stringify(payload) }),

@@ -309,7 +309,9 @@ export function SelfOrderApp() {
       })
     }
     setActiveOrderId(order.id)
-    setCart([])
+    // Keranjang dipertahankan agar pelanggan bisa kembali (Pilih Metode Lain)
+    // dan ganti metode bayar. Checkout ulang = order baru; order pending lama
+    // kedaluwarsa sendiri (QRIS 15 mnt / VA 24 jam).
     notFoundCount.current = 0
     setOrderNotice(null)
     // Sinkronkan riwayat sesi (nama berbeda = pelanggan baru -> riwayat lama sudah dibuang store)
@@ -423,7 +425,7 @@ export function SelfOrderApp() {
           {screen === 'payment' && activeOrder && (
             <PaymentScreen
               order={activeOrder}
-              onBack={() => setScreen('menu')}
+              onBack={() => setScreen('cart')}
               onConfirm={() => setScreen('status')}
               onRetry={async () => {
                 // Hanya order BE yang bisa recharge (mock lokal tidak ada di server)

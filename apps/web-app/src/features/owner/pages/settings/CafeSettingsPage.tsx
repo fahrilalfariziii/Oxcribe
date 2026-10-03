@@ -4,8 +4,9 @@ import { processUploadImage } from '../../../../shared/lib/image'
 import { Button, Field, TextInput } from '../../../../shared/components/ui'
 import { canUseTheme } from '../../../../shared/lib/features'
 import { ThemeSettingsPage } from './ThemeSettingsPage'
+import type { PaymentSettings } from '../../../../shared/types'
 
-type BusinessTab = 'profil' | 'tema'
+type BusinessTab = 'profil' | 'tema' | 'rekening'
 
 export function CafeSettingsPage() {
   const { business, saveBusinessSettings } = useCafe()
@@ -15,6 +16,7 @@ export function CafeSettingsPage() {
   const tabs = ([
     { id: 'profil', label: 'Profil' },
     ...(themeOn ? [{ id: 'tema', label: 'Tema & Tampilan' } as const] : []),
+    { id: 'rekening', label: 'Rekening' },
   ] as const)
 
   // State Form Profile Bisnis
@@ -46,6 +48,28 @@ export function CafeSettingsPage() {
     })
   }, [business])
 
+  // State Form Rekening Kafe (acuan manual kasir + pencairan; tersimpan di
+  // paymentSettings.bank_transfer yang sama dengan halaman Pembayaran)
+  const bankCfg = ((business.paymentSettings ?? {}) as Record<string, PaymentSettings>).bank_transfer ?? {}
+  const [rekeningForm, setRekeningForm] = useState({
+    bankName: bankCfg.bankName || '',
+    accountNumber: bankCfg.accountNumber || '',
+    accountName: bankCfg.accountName || '',
+  })
+  const [rekeningSaved, setRekeningSaved] = useState(false)
+  const [rekeningError, setRekeningError] = useState('')
+  const [rekeningSaving, setRekeningSaving] = useState(false)
+
+  // Sinkronkan form rekening jika business berubah dari luar
+  useEffect(() => {
+    const cfg = ((business.paymentSettings ?? {}) as Record<string, PaymentSettings>).bank_transfer ?? {}
+    setRekeningForm({
+      bankName: cfg.bankName || '',
+      accountNumber: cfg.accountNumber || '',
+      accountName: cfg.accountName || '',
+    })
+  }, [business])
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setLogoError('')
     const file = e.target.files?.[0]
@@ -69,6 +93,34 @@ export function CafeSettingsPage() {
     setCafeForm((prev) => ({ ...prev, logoUrl: '' }))
     setLogoError('')
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  async function handleSaveRekening(e: React.FormEvent) {
+    e.preventDefault()
+    if (rekeningSaving) return
+    setRekeningSaving(true)
+    setRekeningError('')
+    try {
+      // Kirim FULL paymentSettings (merge) agar setting metode lain tidak terhapus
+      const current = ((business.paymentSettings ?? {}) as Record<string, PaymentSettings>)
+      await saveBusinessSettings({
+        paymentSettings: {
+          ...current,
+          bank_transfer: {
+            ...current.bank_transfer,
+            bankName: rekeningForm.bankName.trim(),
+            accountNumber: rekeningForm.accountNumber.trim(),
+            accountName: rekeningForm.accountName.trim(),
+          },
+        },
+      })
+      setRekeningSaved(true)
+      setTimeout(() => setRekeningSaved(false), 3000)
+    } catch (err) {
+      setRekeningError(err instanceof Error ? err.message : 'Gagal menyimpan rekening')
+    } finally {
+      setRekeningSaving(false)
+    }
   }
 
   async function handleSaveCafeProfile(e: React.FormEvent) {
@@ -123,6 +175,57 @@ export function CafeSettingsPage() {
 
       {activeTab === 'tema' && themeOn ? (
         <ThemeSettingsPage embedded />
+      ) : activeTab === 'rekening' ? (
+      <form onSubmit={handleSaveRekening} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-5">
+        <div className="border-b border-sand pb-3">
+          <h2 className="font-bold text-black text-base">Rekening Kafe</h2>
+          <p className="text-xs text-stone">Tampil di kasir untuk pembayaran manual & jadi acuan pencairan pendapatan owner.</p>
+        </div>
+
+        {rekeningSaved && (
+          <div className="flex items-center gap-2 rounded-lg bg-[#b8cda9]/30 p-3 text-xs font-semibold text-sage border border-sage/40">
+            <span className="material-symbols-outlined text-[18px]">check_circle</span>
+            <span>Rekening berhasil disimpan!</span>
+          </div>
+        )}
+        {rekeningError && (
+          <div className="flex items-center gap-2 rounded-lg bg-[#ba1a1a]/10 p-3 text-xs font-semibold text-[#ba1a1a] border border-[#ba1a1a]/30">
+            <span className="material-symbols-outlined text-[18px]">error</span>
+            <span>{rekeningError}</span>
+          </div>
+        )}
+
+        <div className="space-y-4 text-sm">
+          <Field label="Nama Bank">
+            <TextInput
+              value={rekeningForm.bankName}
+              onChange={(e) => setRekeningForm({ ...rekeningForm, bankName: e.target.value })}
+              placeholder="Contoh: BCA"
+            />
+          </Field>
+          <Field label="Nomor Rekening">
+            <TextInput
+              value={rekeningForm.accountNumber}
+              onChange={(e) => setRekeningForm({ ...rekeningForm, accountNumber: e.target.value })}
+              placeholder="Contoh: 8210456789"
+            />
+          </Field>
+          <Field label="Nama Rekening / Pemilik">
+            <TextInput
+              value={rekeningForm.accountName}
+              onChange={(e) => setRekeningForm({ ...rekeningForm, accountName: e.target.value })}
+              placeholder="Contoh: Bean & Brew"
+            />
+          </Field>
+        </div>
+
+        <div className="flex justify-end border-t border-sand pt-4">
+          <Button type="submit" disabled={rekeningSaving} className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">save</span>
+            <span>{rekeningSaving ? 'Menyimpan…' : 'Simpan Rekening'}</span>
+          </Button>
+        </div>
+      </form>
       ) : (
       <form onSubmit={handleSaveCafeProfile} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-5">
         <div className="border-b border-sand pb-3">

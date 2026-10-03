@@ -282,9 +282,9 @@ export async function markOrderPaid(
   if (order.paymentStatus === "paid") {
     throw AppError.conflict("Order ini sudah lunas");
   }
-  if (order.paymentMethod !== "cash" && !opts?.allowNonCash) {
+  if (order.paymentMethod !== "cash" && !opts?.allowNonCash && order.payments[0]?.gateway !== "manual") {
     throw AppError.badRequest(
-      "Pembayaran non-tunai (qris/bank_transfer) hanya bisa dilunasi via DOKU (webhook /public/doku/notification atau poll /public/orders/by-client/:clientOrderId/status), bukan manual."
+      "Pembayaran non-tunai via gateway (qris/bank_transfer) hanya bisa dilunasi via DOKU (webhook /public/doku/notification atau poll /public/orders/by-client/:clientOrderId/status), bukan manual."
     );
   }
 

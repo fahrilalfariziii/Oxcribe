@@ -28,6 +28,23 @@ export type DokuChargeResult = {
 
 export type DokuMethod = "qris" | "bank_transfer";
 
+/** Routing ke sub-account tenant (agregator). Diomit = mengendap ke merchant utama. */
+export type DokuSubAccountRoute = {
+  profileId?: string;
+  splitRuleId?: string;
+};
+
+/** Fragmen additionalInfo.account untuk routing sub-account (Direct API). */
+function subAccountFragment(route?: DokuSubAccountRoute): Record<string, unknown> {
+  if (!route?.profileId) return {};
+  return {
+    account: {
+      id: route.profileId,
+      ...(route.splitRuleId ? { split_rule_id: route.splitRuleId } : {}),
+    },
+  };
+}
+
 /** Nomor invoice unik per charge: "<orderNumber>-<base36 timestamp>". */
 export function makeDokuInvoiceId(orderNumber: string): string {
   const suffix = Date.now().toString(36);
@@ -50,7 +67,7 @@ function isProduction(): boolean {
   return (process.env.DOKU_IS_PRODUCTION || "false").toLowerCase() === "true";
 }
 
-function dokuBaseUrl(): string {
+export function dokuBaseUrl(): string {
   return isProduction() ? "https://api.doku.com" : "https://api-sandbox.doku.com";
 }
 
@@ -91,7 +108,7 @@ export function dokuTimestamp(date = new Date()): string {
 }
 
 /** X-EXTERNAL-ID: numeric string unik hari ini. */
-function dokuExternalId(): string {
+export function dokuExternalId(): string {
   return `${Date.now()}${Math.floor(100000 + Math.random() * 899999)}`;
 }
 
@@ -188,6 +205,7 @@ async function createDokuQris(params: {
   orderNumber: string;
   grossAmount: number;
   invoiceId?: string;
+  subAccount?: DokuSubAccountRoute;
 }): Promise<DokuChargeResult | null> {
   const env = getDokuEnv();
   if (!env) {
@@ -205,7 +223,7 @@ async function createDokuQris(params: {
     merchantId: env.merchantId,
     terminalId: env.terminalId,
     validityPeriod: dokuTimestamp(expiry),
-    additionalInfo: { postalCode: env.postalCode, feeType: 1 },
+    additionalInfo: { postalCode: env.postalCode, feeType: 1, ...subAccountFragment(params.subAccount) },
   };
   const timestamp = dokuTimestamp();
   const signature = buildSymmetricSignature({
@@ -295,6 +313,7 @@ async function createDokuVA(params: {
   customerName?: string | null;
   bank: string;
   invoiceId?: string;
+  subAccount?: DokuSubAccountRoute;
 }): Promise<DokuChargeResult | null> {
   const env = getDokuEnv();
   if (!env) {
@@ -335,7 +354,7 @@ async function createDokuVA(params: {
     virtualAccountName: (params.customerName || "Tamu").slice(0, 255),
     trxId: partnerReferenceNo,
     totalAmount: { value: toAmountString(params.grossAmount), currency: "IDR" },
-    additionalInfo: { channel: VA_CHANNEL[bank] },
+    additionalInfo: { channel: VA_CHANNEL[bank], ...subAccountFragment(params.subAccount) },
     virtualAccountTrxType: "C",
     expiredDate: dokuTimestamp(expiry),
   };
@@ -398,9 +417,10 @@ export async function createDokuChargeForMethod(params: {
   customerName?: string | null;
   selectedBank?: string;
   invoiceId?: string;
+  subAccount?: DokuSubAccountRoute;
 }): Promise<DokuChargeResult | null> {
   if (params.method === "qris") {
-    return createDokuQris({ orderNumber: params.orderNumber, grossAmount: params.grossAmount, invoiceId: params.invoiceId });
+    return createDokuQris({ orderNumber: params.orderNumber, grossAmount: params.grossAmount, invoiceId: params.invoiceId, subAccount: params.subAccount });
   }
   if (params.method === "bank_transfer") {
     return createDokuVA({
@@ -409,6 +429,7 @@ export async function createDokuChargeForMethod(params: {
       customerName: params.customerName,
       bank: params.selectedBank || "bca",
       invoiceId: params.invoiceId,
+      subAccount: params.subAccount,
     });
   }
   return null;

@@ -203,6 +203,8 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
   const countdown = useCountdown(fallbackExpiry)
   const qrValue = gatewayData?.qrContent || gatewayData?.qrString
   const hasQr = Boolean(qrValue || gatewayData?.qrUrl)
+  // Nomor VA DOKU mengandung padding spasi Service ID — tampil & salin versi bersih.
+  const vaDisplay = (gatewayData?.vaNumber ?? '').replace(/\s/g, '')
   async function copyText(text: string | undefined, key: string) {
     if (!text) return
     try {
@@ -212,7 +214,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
     } catch {}
   }
   const handleCopyVa = async () => {
-    await copyText(gatewayData?.vaNumber, 'va')
+    await copyText(vaDisplay || undefined, 'va')
   }
 
   return (
@@ -296,7 +298,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
                 <p className="text-xs font-semibold uppercase tracking-wider text-stone">
                   Virtual Account {gatewayData.vaBank ? `— ${gatewayData.vaBank.toUpperCase()}` : ''}
                 </p>
-                <p className="text-lg font-mono font-bold tracking-wider text-black">{gatewayData.vaNumber}</p>
+                <p className="text-lg font-mono font-bold tracking-wider text-black">{vaDisplay}</p>
                 <button type="button" onClick={handleCopyVa} className="mx-auto flex items-center gap-1 rounded-full border border-clay bg-cream px-3 py-1 text-xs font-semibold text-black">
                   <span className="material-symbols-outlined text-[16px]">{copied === 'va' ? 'check' : 'content_copy'}</span>
                   <span>{copied === 'va' ? 'Tersalin' : 'Salin VA'}</span>
@@ -306,11 +308,22 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
                 {countdown && <p className="mt-1 text-[11px] font-bold text-sage">{countdown}</p>}
                 <div className="text-left rounded-lg bg-cream p-3 text-xs leading-relaxed text-soil border border-sand">
                   <p className="font-semibold text-black mb-1">Tata cara pembayaran:</p>
-                  <p>1. Buka m-banking / ATM {gatewayData.vaBank ? gatewayData.vaBank.toUpperCase() : ''}</p>
-                  <p>2. Pilih Transfer → Virtual Account</p>
-                  <p>3. Masukkan nomor VA di atas</p>
-                  <p>4. Pastikan nominal {formatRupiah(liveOrder.total)} & nama penerima benar</p>
-                  <p>5. Konfirmasi & simpan bukti</p>
+                  {gatewayData.vaBank === 'mandiri' ? (
+                    <>
+                      <p>1. Buka Livin&apos;/ATM Mandiri → Bayar → Multipayment</p>
+                      <p>2. Masukkan nomor VA di atas</p>
+                      <p>3. Ketik nominal <strong className="text-black">PERSIS</strong> seperti total {formatRupiah(liveOrder.total)} — nominal lain akan ditolak</p>
+                      <p>4. Konfirmasi & simpan bukti, tunjukkan ke kasir</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>1. Buka m-banking / ATM {gatewayData.vaBank ? gatewayData.vaBank.toUpperCase() : ''}</p>
+                      <p>2. Pilih Transfer → Virtual Account</p>
+                      <p>3. Masukkan nomor VA di atas</p>
+                      <p>4. Pastikan nominal {formatRupiah(liveOrder.total)} & nama penerima benar</p>
+                      <p>5. Konfirmasi & simpan bukti</p>
+                    </>
+                  )}
                 </div>
               </>
             ) : (

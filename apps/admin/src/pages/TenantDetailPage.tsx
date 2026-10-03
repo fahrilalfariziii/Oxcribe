@@ -78,6 +78,15 @@ export function TenantDetailPage() {
   const [feeMode, setFeeMode] = useState<'percent' | 'flat'>('percent')
   const [feePercent, setFeePercent] = useState('5')
   const [feeFlat, setFeeFlat] = useState('1000')
+  // DOKU Sub-Account (agregator, per tenant) — wallet-as-a-service V2
+  const [subInfo, setSubInfo] = useState<{
+    profileId: string | null
+    subAccountStatus: string
+    balance: unknown
+    settlement: Record<string, string | null>
+    subAccounts: unknown
+  } | null>(null)
+  const [transferAmount, setTransferAmount] = useState('50000')
 
   async function load() {
     setError('')
@@ -91,6 +100,13 @@ export function TenantDetailPage() {
       setFeeMode(pf?.mode === 'flat' ? 'flat' : 'percent')
       setFeePercent(String(pf?.percent ?? 5))
       setFeeFlat(String(pf?.flat ?? 1000))
+      // DOKU sub-account (non-blocking: saldo bisa gagal bila DOKU timeout)
+      try {
+        const sub = (await platformApi.getDokuSubAccount(id!)) as unknown as typeof subInfo
+        setSubInfo(sub)
+      } catch {
+        setSubInfo(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat')
     }
@@ -304,6 +320,56 @@ export function TenantDetailPage() {
                 </>
               )
             })()}
+          </Card>
+
+          <Card>
+            <CardTitle>DOKU Sub-Account (pencairan per tenant)</CardTitle>
+            <p className="mt-1 text-xs text-slate-500">
+              Satu sub-account per kafe (wallet-as-a-service V2). Charge QRIS/VA di-routing ke sub-account ini bila status aktif;
+              bila belum terdaftar, dana mengendap ke merchant utama (backward compatible).
+            </p>
+            {!subInfo?.profileId ? (
+              <div className="mt-3">
+                <p className="text-xs text-slate-500">Belum terdaftar — status: {subInfo?.subAccountStatus ?? 'none'}.</p>
+                {isSuper && (
+                  <Button
+                    size="sm"
+                    className="mt-2 h-10"
+                    onClick={() =>
+                      void act(
+                        () => platformApi.registerDokuSubAccount(id!),
+                        'Sub-account DOKU didaftarkan. Charge berikutnya di-routing ke tenant ini.',
+                      )
+                    }
+                  >
+                    Daftarkan sub-account DOKU
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3 space-y-3 text-xs">
+                <p className="font-mono text-slate-700">profileId: <strong>{subInfo.profileId}</strong> · status: {subInfo.subAccountStatus} {subInfo.settlement?.bankAccount ? `(rekening: ${subInfo.settlement.bankAccount})` : ''}</p>
+                <pre className="overflow-x-auto rounded-lg bg-slate-50 p-3 text-slate-600">{JSON.stringify({ subAccounts: subInfo.subAccounts, settlement: subInfo.settlement }, null, 2)}</pre>
+                {subInfo.balance != null && <pre className="overflow-x-auto rounded-lg bg-slate-50 p-3 text-slate-600">{JSON.stringify(subInfo.balance, null, 2)}</pre>}
+                {isSuper && (
+                  <div className="flex gap-2">
+                    <Input value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} inputMode="numeric" placeholder="50000" className="h-10 w-32" />
+                    <Button
+                      size="sm"
+                      className="h-10"
+                      onClick={() =>
+                        void act(
+                          () => platformApi.transferDokuFunds(id!, { amount: Number(transferAmount) || 0 }),
+                          'Pencairan diajukan — cek webhook transfer di audit log.',
+                        )
+                      }
+                    >
+                      Cairkan ke rekening
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           <Card>

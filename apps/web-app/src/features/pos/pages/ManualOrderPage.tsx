@@ -547,7 +547,26 @@ export function ManualOrderPage() {
                 <span>Total Tagihan</span>
                 <span className="text-sage">{formatRupiah(total)}</span>
               </div>
-              <p className="text-[11px] text-stone">Pesanan manual hanya dicatat (tanpa DOKU) dengan status pending — lunasi via Tandai Lunas di Live Orders.</p>
+              {/* Info pembayaran manual kafe (QRIS statis / rekening) untuk non-tunai */}
+              {paymentMethod !== 'cash' && (() => {
+                const payCfg = ((business.paymentSettings ?? {}) as Record<string, { qrImageUrl?: string; bankName?: string; accountNumber?: string; accountName?: string }>)[paymentMethod] ?? {}
+                return (
+                  <div className="space-y-2 rounded-lg border border-sand bg-cream p-3 text-xs text-soil">
+                    {paymentMethod === 'qris' && payCfg.qrImageUrl ? (
+                      <img src={payCfg.qrImageUrl} alt="QRIS statis kafe" className="mx-auto max-w-[200px] rounded-lg bg-white p-2" />
+                    ) : null}
+                    {paymentMethod === 'bank_transfer' && (payCfg.accountNumber || payCfg.bankName) ? (
+                      <div className="text-center">
+                        <p className="font-semibold uppercase tracking-wider text-stone">{payCfg.bankName ?? 'Transfer Bank'}</p>
+                        <p className="font-mono text-base font-bold tracking-wider text-black">{payCfg.accountNumber ?? '-'}</p>
+                        {payCfg.accountName ? <p className="text-soil">a.n. {payCfg.accountName}</p> : null}
+                      </div>
+                    ) : null}
+                    <p>Minta pelanggan bayar {formatRupiah(total)} via info di atas, verifikasi bukti, lalu simpan — lunasi via Tandai Lunas di Live Orders.</p>
+                  </div>
+                )
+              })()}
+              <p className="text-[11px] text-stone">Pesanan manual hanya dicatat (tanpa payment gateway) dengan status pending — lunasi via Tandai Lunas di Live Orders.</p>
             </div>
 
             {checkoutError && (

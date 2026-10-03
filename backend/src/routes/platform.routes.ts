@@ -487,6 +487,167 @@ platformRouter.patch(
   })
 );
 
+// ================= DOKU Sub-Account agregator (per tenant) =================
+
+const BANK_CODES: Record<string, string> = { bca: "014", bri: "002", bni: "009", mandiri: "008" };
+
+const registerSubSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  email: z.string().email().max(150).optional(),
+  phone: z.string().max(30).optional().nullable(),
+});
+
+// POST /api/platform/tenants/:id/doku-subaccount/register — daftarkan sub-account
+// DOKU untuk tenant (superadmin only; menyangkut dana). Idempoten: bila profileId
+// sudah ada, kembalikan apa adanya tanpa register ulang.
+platformRouter.post(
+  "/tenants/:id/doku-subaccount/register",
+  requirePlatformRole("superadmin"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const override = registerSubSchema.parse(req.body ?? {});
+    const business = await prisma.business.findUnique({ where: { id } });
+    if (!business) throw AppError.notFound("Tenant tidak ditemukan");
+    if (business.dokuProfileId) {
+      return res.json({
+        status: "ok",
+        reused: true,
+        profileId: business.dokuProfileId,
+        subAccountStatus: business.dokuSubAccountStatus,
+      });
+    }
+    const owner = await prisma.user.findFirst({ where: { businessId: id, role: "owner", active: true } });
+    const { registerDokuSubAccount } = await import("../services/doku-subaccount.service");
+    const referenceNo = `SUB-${id}-${Date.now().toString(36)}`;
+    await prisma.business.update({ where: { id }, data: { dokuSubAccountStatus: "pending" } });
+    try {
+      const sub = await registerDokuSubAccount({
+        referenceNo,
+        name: override.name ?? business.name,
+        email: override.email ?? owner?.email ?? business.email ?? `tenant-${id}@ordria.local`,
+        phoneNo: override.phone ?? business.phone ?? undefined,
+      });
+      const updated = await prisma.business.update({
+        where: { id },
+        data: {
+          dokuProfileId: sub.profileId,
+          dokuSubAccounts: (sub.accounts ?? []) as object,
+          dokuSubAccountStatus: "active",
+        },
+      });
+      await recordAudit(req.platformAdmin!.adminId, id, "doku_subaccount_registered", { status: "none" }, { profileId: sub.profileId });
+      res.status(201).json({ status: "ok", reused: false, profileId: updated.dokuProfileId, subAccountStatus: updated.dokuSubAccountStatus });
+    } catch (e) {
+      await prisma.business.update({ where: { id }, data: { dokuSubAccountStatus: "failed" } });
+      throw e;
+    }
+  })
+);
+
+// GET /api/platform/tenants/:id/doku-subaccount — status tersimpan + saldo live
+platformRouter.get(
+  "/tenants/:id/doku-subaccount",
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const business = await prisma.business.findUnique({ where: { id } });
+    if (!business) throw AppError.notFound("Tenant tidak ditemukan");
+    let balance: unknown = null;
+    if (business.dokuProfileId) {
+      try {
+        const { getDokuSubBalance } = await import("../services/doku-subaccount.service");
+        balance = await getDokuSubBalance(business.dokuProfileId);
+      } catch (e) {
+        balance = { error: (e as Error).message };
+      }
+    }
+    res.json({
+      profileId: business.dokuProfileId,
+      subAccounts: business.dokuSubAccounts,
+      subAccountStatus: business.dokuSubAccountStatus,
+      splitRuleId: business.dokuSplitRuleId,
+      settlement: {
+        bankCode: business.dokuSettlementBankCode,
+        bankAccount: business.dokuSettlementBankAccount,
+        bankName: business.dokuSettlementBankName,
+        status: business.dokuSettlementStatus,
+      },
+      balance,
+    });
+  })
+);
+
+const transferSchema = z.object({
+  amount: z.coerce.number().positive(),
+  fromAccount: z.string().min(1).optional(),
+  beneficiaryBankCode: z.string().min(3).max(10).optional(),
+  beneficiaryAccountNumber: z.string().min(1).max(30).optional(),
+  remark: z.string().max(140).optional(),
+});
+
+// POST /api/platform/tenants/:id/doku-subaccount/transfer — pencairan ke bank owner
+// (superadmin only). Bank default dari tab Rekening kafe (paymentSettings.bank_transfer).
+platformRouter.post(
+  "/tenants/:id/doku-subaccount/transfer",
+  requirePlatformRole("superadmin"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const data = transferSchema.parse(req.body);
+    const business = await prisma.business.findUnique({ where: { id } });
+    if (!business) throw AppError.notFound("Tenant tidak ditemukan");
+    if (!business.dokuProfileId) throw AppError.badRequest("Tenant belum punya sub-account DOKU");
+    const accounts = (business.dokuSubAccounts ?? []) as { accountNumber?: string }[];
+    const fromAccount = data.fromAccount ?? accounts[0]?.accountNumber;
+    if (!fromAccount) throw AppError.badRequest("Nomor sub-akun sumber tidak ditemukan (cek saldo dulu)");
+    const payCfg = ((business.paymentSettings ?? {}) as Record<string, { bank?: string; accountNumber?: string } | undefined>).bank_transfer;
+    const bankSlug = (payCfg?.bank ?? "").toLowerCase();
+    const beneficiaryAccountNumber = data.beneficiaryAccountNumber ?? payCfg?.accountNumber;
+    if (!beneficiaryAccountNumber) throw AppError.badRequest("Nomor rekening tujuan wajib (tab Rekening / body)");
+    const beneficiaryBankCode = data.beneficiaryBankCode ?? BANK_CODES[bankSlug];
+    if (!beneficiaryBankCode) throw AppError.badRequest("Kode bank tujuan tidak dikenal (kirim beneficiaryBankCode)");
+    const { inquiryDokuTransfer, payDokuTransfer } = await import("../services/doku-subaccount.service");
+    const inquiry = (await inquiryDokuTransfer({
+      referenceNo: `TRF-${id}-${Date.now().toString(36)}`,
+      fromAccount,
+      type: "BANK_ACCOUNT",
+      amount: data.amount,
+      beneficiaryBankCode,
+      beneficiaryAccountNumber,
+      remark: data.remark,
+    })) as { referenceNo?: string };
+    if (!inquiry.referenceNo) throw AppError.badRequest("Inquiry transfer tanpa referenceNo");
+    const paid = await payDokuTransfer({ referenceNo: inquiry.referenceNo, type: "BANK_ACCOUNT" });
+    await recordAudit(req.platformAdmin!.adminId, id, "doku_transfer_initiated", { amount: data.amount, to: beneficiaryAccountNumber }, paid);
+    res.status(201).json({ status: "ok", inquiry, paid });
+  })
+);
+
+const splitRuleSchema = z.object({
+  rules: z.array(z.object({
+    type: z.enum(["PERCENTAGE", "FLAT"]),
+    value: z.coerce.number().nonnegative(),
+    currency: z.string().max(3).optional(),
+    accountNumber: z.union([z.string(), z.number()]),
+  })).min(1).max(10),
+});
+
+// POST /api/platform/tenants/:id/doku-subaccount/split-rule — split fee otomatis
+// (superadmin only). splitRuleId tersimpan untuk dipakai saat charge.
+platformRouter.post(
+  "/tenants/:id/doku-subaccount/split-rule",
+  requirePlatformRole("superadmin"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { rules } = splitRuleSchema.parse(req.body);
+    const business = await prisma.business.findUnique({ where: { id } });
+    if (!business) throw AppError.notFound("Tenant tidak ditemukan");
+    const { createDokuSplitRule } = await import("../services/doku-subaccount.service");
+    const splitRuleId = await createDokuSplitRule(rules);
+    await prisma.business.update({ where: { id }, data: { dokuSplitRuleId: splitRuleId } });
+    await recordAudit(req.platformAdmin!.adminId, id, "doku_split_rule_created", null, { splitRuleId });
+    res.status(201).json({ status: "ok", splitRuleId });
+  })
+);
+
 // ================= Plans =================
 
 // GET /api/platform/plans — definisi paket dari DB (+ jumlah tenant per paket)
