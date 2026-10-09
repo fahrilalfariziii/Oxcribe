@@ -111,6 +111,8 @@ export const api = {
     request<{ order: unknown; doku: unknown | null; midtrans?: unknown | null }>(`/api/public/orders/by-client/${clientOrderId}/status`),
   rechargePublicOrder: (clientOrderId: string, selectedBank?: string) =>
     request<unknown>(`/api/public/orders/by-client/${clientOrderId}/recharge`, { method: 'POST', body: JSON.stringify(selectedBank ? { selectedBank } : {}) }),
+  cancelPublicOrder: (clientOrderId: string) =>
+    request<unknown>(`/api/public/orders/by-client/${clientOrderId}/cancel`, { method: 'POST' }),
 
   // Auth — with credentials
   login: (email: string, password: string) =>

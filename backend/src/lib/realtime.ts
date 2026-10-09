@@ -111,14 +111,24 @@ function publish(businessId: number, type: RealtimeEventType, data: unknown) {
 
 async function resolveBusinessId(query: Record<string, unknown>): Promise<number> {
   const token = typeof query.token === "string" ? query.token : undefined;
-  // Staff: pakai businessId dari JWT, jangan percaya kiriman client
+  // Staff: pakai businessId dari JWT, jangan percaya kiriman client.
+  // Samakan dengan requireAuth: tolak token platform + cek DB agar staff yang
+  // dinonaktifkan/diubah role/bisnisnya langsung kehilangan akses SSE.
   if (token) {
+    let decoded: { userId: number; businessId: number; role: string; scope?: string };
     try {
-      const decoded = verifyAuthToken(token);
-      return decoded.businessId;
+      decoded = verifyAuthToken(token);
     } catch {
       throw AppError.unauthorized("Token tidak valid");
     }
+    if (decoded.scope === "platform") {
+      throw AppError.unauthorized("Sesi platform admin tidak berlaku di sini");
+    }
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    if (!user || !user.active) throw AppError.unauthorized("Akun tidak aktif");
+    if (user.role !== decoded.role) throw AppError.unauthorized("Role tidak lagi valid, silakan login ulang");
+    if (user.businessId !== decoded.businessId) throw AppError.unauthorized("Akses bisnis tidak valid");
+    return decoded.businessId;
   }
   // Pelanggan self-order: wajib kirim qrToken meja, resolve businessId via DB
   const qrToken =
@@ -142,7 +152,7 @@ export async function handleStream(req: Request, res: Response): Promise<void> {
   try {
     businessId = await resolveBusinessId(req.query as Record<string, unknown>);
   } catch (e) {
-    const status = (e as { status?: number }).status ?? 401;
+    const status = (e as unknown as { statusCode?: number }).statusCode ?? 401;
     const message = e instanceof Error ? e.message : "Unauthorized";
     res.status(status).json({ error: message });
     return;
@@ -171,6 +181,16 @@ export async function handleStream(req: Request, res: Response): Promise<void> {
       }
     }, HEARTBEAT_MS),
   };
+  // Batasi umur koneksi agar token basi dinilai ulang saat reconnect
+  // (EventSource menyambung ulang otomatis dan mengulang resolveBusinessId).
+  const MAX_STREAM_MS = 6 * 60 * 60 * 1000;
+  const lifetime = setTimeout(() => {
+    try {
+      res.end();
+    } catch {
+      // abaikan, 'close' yang membersihkan
+    }
+  }, MAX_STREAM_MS);
   // Hindari timeout proxy yang menutup koneksi idle terlalu cepat
   (req.socket as unknown as { setTimeout?: (ms: number) => void }).setTimeout?.(0);
   subscribers.add(sub);
@@ -188,6 +208,7 @@ export async function handleStream(req: Request, res: Response): Promise<void> {
 
   req.on("close", () => {
     clearInterval(sub.heartbeat);
+    clearTimeout(lifetime);
     subscribers.delete(sub);
   });
 }

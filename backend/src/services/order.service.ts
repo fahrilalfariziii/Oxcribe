@@ -5,6 +5,7 @@ import { calculateOrderTotals } from "../lib/order-calc";
 import { calcPlatformFee, estimateMdrFee } from "../lib/platform-fee";
 import { FEATURES, getBusinessFeatures, isFeatureOn } from "../lib/feature-gate";
 import { nextOrderNumber } from "./order-number.service";
+import { expireDokuQris } from "./doku.service";
 import {
   emitNewOrder,
   emitOrderStatusUpdate,
@@ -265,7 +266,37 @@ export async function cancelOrder(businessId: number, orderId: number) {
   if (order.paymentStatus === "paid") {
     throw AppError.badRequest("Order yang sudah lunas tidak bisa dibatalkan");
   }
-  return updateOrderStatus(businessId, orderId, "batal");
+  // Best-effort: batalkan charge DOKU agar QRIS tak bisa dibayar setelah batal lokal.
+  // VA Direct API tak punya endpoint cancel — mengandalkan kedaluwarsa alami.
+  // Kegagalan DOKU tak menggagalkan batal lokal (dicatat di gatewayData).
+  try {
+    const payments = await prisma.payment.findMany({ where: { orderId } });
+    const gd = (payments[0]?.gatewayData ?? {}) as Record<string, unknown>;
+    const partnerRef = typeof gd.partnerReferenceNo === "string" ? gd.partnerReferenceNo : undefined;
+    if (order.paymentMethod === "qris" && payments[0]?.gateway === "doku" && partnerRef) {
+      const expired = await expireDokuQris({
+        partnerReferenceNo: partnerRef,
+        referenceNo: typeof gd.referenceNo === "string" ? gd.referenceNo : undefined,
+        reason: "cancelled by cashier",
+      });
+      await prisma.payment.updateMany({
+        where: { orderId },
+        data: { gatewayData: { ...(gd as object), dokuCancelAttempt: { at: new Date().toISOString(), expired } } as unknown as object },
+      });
+    }
+  } catch (e) {
+    console.warn(`[cancelOrder] expire DOKU gagal untuk order ${orderId}:`, (e as Error).message);
+  }
+  // Tandai pembayaran canceled (bukan pending) agar pelanggan & kasir tahu order ini
+  // sudah dibatalkan — bukan menunggu bayar. Hanya dari pending (kegagalan gateway
+  // yang sudah failed dibiarkan failed).
+  if (order.paymentStatus === "pending") {
+    await prisma.order.update({ where: { id: orderId }, data: { paymentStatus: "canceled" } });
+    await prisma.payment.updateMany({ where: { orderId }, data: { status: "canceled" } });
+  }
+  const cancelled = await updateOrderStatus(businessId, orderId, "batal");
+  emitOrderPaymentUpdate(businessId, cancelled);
+  return cancelled;
 }
 
 export async function markOrderPaid(
@@ -281,6 +312,9 @@ export async function markOrderPaid(
   if (!order) throw AppError.notFound("Order tidak ditemukan");
   if (order.paymentStatus === "paid") {
     throw AppError.conflict("Order ini sudah lunas");
+  }
+  if (order.paymentStatus === "canceled") {
+    throw AppError.badRequest("Order ini sudah dibatalkan");
   }
   if (order.paymentMethod !== "cash" && !opts?.allowNonCash && order.payments[0]?.gateway !== "manual") {
     throw AppError.badRequest(

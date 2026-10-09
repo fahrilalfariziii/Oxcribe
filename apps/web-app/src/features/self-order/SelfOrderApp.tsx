@@ -25,7 +25,7 @@ type Screen = 'menu' | 'cart' | 'payment' | 'status' | 'history'
 
 export function SelfOrderApp() {
   const { token } = useParams()
-  const { tables, products, placeOrder, createRealOrder, fetchCatalogFromBackend, refreshOrderFromBackend, rechargeOrderFromBackend, restoreOrderHistory, orders, business } = useCafe()
+  const { tables, products, placeOrder, createRealOrder, fetchCatalogFromBackend, refreshOrderFromBackend, rechargeOrderFromBackend, cancelOrderFromBackend, restoreOrderHistory, orders, business } = useCafe()
   const theme = normalizeTheme(business.theme)
   const titleFont = theme.titleFont === 'sans' ? 'font-sans' : theme.titleFont === 'serif' ? 'font-serif' : 'font-display'
   const STORAGE_KEY = 'servopay:activeOrder'
@@ -427,6 +427,17 @@ export function SelfOrderApp() {
               order={activeOrder}
               onBack={() => setScreen('cart')}
               onConfirm={() => setScreen('status')}
+              onChangeMethod={async () => {
+                // Batalkan order lama di server (QR/VA ikut di-expire),
+                // lalu kembali — checkout berikutnya = order baru.
+                if (!activeOrder.id.startsWith('o-')) {
+                  setScreen('cart')
+                  return
+                }
+                const updated = await cancelOrderFromBackend(activeOrder.clientOrderId)
+                if (!updated) throw new Error('Gagal membatalkan pesanan di server')
+                setScreen('cart')
+              }}
               onRetry={async () => {
                 // Hanya order BE yang bisa recharge (mock lokal tidak ada di server)
                 if (!activeOrder.id.startsWith('o-')) throw new Error('Pesanan lokal belum tersinkron ke server')

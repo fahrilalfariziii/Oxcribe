@@ -272,6 +272,65 @@ async function createDokuQris(params: {
   };
 }
 
+/** Batalkan QRIS di DOKU (qr-expire) agar tak bisa dibayar setelah order dibatalkan lokal.
+// Referensi: developers.doku.com Direct API SNAP "Cancel QRIS" — sukses = responseCode 2007700.
+// Best-effort: return false (jangan lempar) agar kegagalan DOKU tak menggagalkan batal lokal. */
+export async function expireDokuQris(params: {
+  partnerReferenceNo: string;
+  referenceNo?: string;
+  reason?: string;
+}): Promise<boolean> {
+  const env = getDokuEnv();
+  if (!env) {
+    console.warn("[DOKU expire] kredensial belum dikonfigurasi — lewati expire");
+    return false;
+  }
+  const token = await getDokuB2BToken();
+  if (!token) return false;
+  const body = {
+    partnerReferenceNo: params.partnerReferenceNo,
+    ...(params.referenceNo ? { referenceNo: params.referenceNo } : {}),
+    merchantId: env.merchantId,
+    ...(params.reason ? { reason: params.reason.slice(0, 128) } : {}),
+  };
+  const timestamp = dokuTimestamp();
+  const signature = buildSymmetricSignature({
+    secretKey: env.secretKey,
+    httpMethod: "POST",
+    endpointUrl: QR_EXPIRE_PATH,
+    accessToken: token,
+    body,
+    timestamp,
+  });
+  let res: Response;
+  try {
+    res = await fetch(`${dokuBaseUrl()}${QR_EXPIRE_PATH}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-PARTNER-ID": env.clientId,
+        "X-EXTERNAL-ID": dokuExternalId(),
+        "X-TIMESTAMP": timestamp,
+        "X-SIGNATURE": signature,
+        Authorization: `Bearer ${token}`,
+        "CHANNEL-ID": "H2H",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    console.warn(`[DOKU expire] network error: ${(e as Error).message}`);
+    return false;
+  }
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const code = String(data.responseCode || "");
+  if (res.ok && code.startsWith("200")) {
+    console.log(`[DOKU expire] QR expired invoice=${params.partnerReferenceNo} code=${code}`);
+    return true;
+  }
+  console.warn(`[DOKU expire] gagal ${res.status} code=${code}: ${JSON.stringify(data).slice(0, 200)}`);
+  return false;
+}
+
 // ---- Virtual Account (DGPC) ----
 
 const VA_CREATE_PATH = "/virtual-accounts/bi-snap-va/v1.1/transfer-va/create-va";

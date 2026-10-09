@@ -6,6 +6,8 @@ import {
   getDokuB2BToken,
   resolveDokuConfig,
 } from "./doku.service";
+import type { DokuSubAccountRoute } from "./doku.service";
+import { prisma } from "../lib/prisma";
 
 // DOKU Sub-Account V2 (wallet-as-a-service) untuk model agregator SaaS.
 // Satu sub-account per tenant (business): register -> profileId -> routing charge,
@@ -64,6 +66,17 @@ async function dokuSubPost<T>(path: string, body: Record<string, unknown>): Prom
   return data as T;
 }
 
+/** Sanitasi nama pemegang akun ke format DOKU (huruf/angka/spasi/.'-, maks 100).
+ *  Karakter lain (mis. &) membuat DOKU menjawab 4000601 "Invalid Field Format name". */
+export function sanitizeDokuAccountName(name: string, fallback: string): string {
+  const clean = name
+    .replace(/[^A-Za-z0-9 .'\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return clean || fallback;
+}
+
 /** Daftarkan sub-account untuk satu tenant. Balikan wajib disimpan (profileId + accounts). */
 export async function registerDokuSubAccount(params: {
   referenceNo: string;
@@ -71,18 +84,31 @@ export async function registerDokuSubAccount(params: {
   email: string;
   phoneNo?: string;
 }): Promise<DokuSubAccount> {
-  const data = await dokuSubPost<{
-    profileId?: string;
-    parentProfileId?: string;
-    accounts?: unknown[];
-  }>("/sub-account/v2.0/register", {
-    partnerReferenceNo: params.referenceNo,
-    type: "DEFAULT",
-    name: params.name.slice(0, 100),
-    email: params.email,
-    ...(params.phoneNo ? { phoneNo: params.phoneNo } : {}),
-    countryCode: "ID",
-  });
+  // Batas DOKU: email maks 25 char — gagalkan cepat dengan pesan jelas (bukan 400 mentah).
+  if (params.email.length > 25) {
+    throw new Error(`Email "${params.email}" melebihi 25 karakter (batas DOKU register) — pakai email owner yang lebih pendek via override`);
+  }
+  let data: { profileId?: string; parentProfileId?: string; accounts?: unknown[] };
+  try {
+    data = await dokuSubPost<{
+      profileId?: string;
+      parentProfileId?: string;
+      accounts?: unknown[];
+    }>("/sub-account/v2.0/register", {
+      partnerReferenceNo: params.referenceNo,
+      type: "DEFAULT",
+      name: sanitizeDokuAccountName(params.name, `Tenant ${params.referenceNo}`.slice(0, 100)),
+      email: params.email,
+      ...(params.phoneNo ? { phoneNo: params.phoneNo.slice(0, 15) } : {}),
+      countryCode: "ID",
+    });
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg.includes("4000601")) {
+      throw new Error(`${msg} (nama sub-account ditolak DOKU — pakai huruf/angka/spasi/.'- maks 100 karakter)`);
+    }
+    throw e;
+  }
   if (!data.profileId) throw new Error("DOKU register tanpa profileId");
   console.log(`[DOKU sub-account] registered profile=${data.profileId} ref=${params.referenceNo}`);
   return {
@@ -96,6 +122,44 @@ export async function registerDokuSubAccount(params: {
 /** Saldo sub-account (available + reserved per tipe akun). */
 export async function getDokuSubBalance(profileId: string): Promise<Record<string, unknown>> {
   return dokuSubPost("/sub-account/v2.0/balance-inquiries", { profileId });
+}
+
+// ---- Routing charge tervalidasi (anti silent-failure DOKU) ----
+
+// DOKU TIDAK error saat profileId/split_rule_id invalid (dana mendarat tanpa split
+// dan harus diurus manual). Karena itu routing charge wajib membuktikan profileId
+// hidup via balance-inquiry, bukan sekadar percaya kolom DB. Hasil di-cache 1 jam
+// agar checkout tak terbebani inquiry tiap transaksi.
+const routeCache = new Map<number, { at: number; route: DokuSubAccountRoute | undefined }>();
+const ROUTE_CACHE_TTL_MS = 60 * 60 * 1000;
+
+/** Hapus cache routing tenant (dipanggil tiap register/split-rule/onboarding berubah). */
+export function invalidateTenantSubAccountRoute(businessId: number): void {
+  routeCache.delete(businessId);
+}
+
+/** Routing charge tervalidasi untuk satu tenant; undefined = fallback merchant utama. */
+export async function resolveValidatedTenantRoute(businessId: number): Promise<DokuSubAccountRoute | undefined> {
+  const cached = routeCache.get(businessId);
+  if (cached && Date.now() - cached.at < ROUTE_CACHE_TTL_MS) return cached.route;
+  let route: DokuSubAccountRoute | undefined;
+  try {
+    const business = await prisma.business.findUnique({ where: { id: businessId } });
+    if (business?.dokuSubAccountStatus === "active" && business.dokuProfileId) {
+      const profileId: string = business.dokuProfileId;
+      const candidate: DokuSubAccountRoute = {
+        profileId,
+        ...(business.dokuSplitRuleId ? { splitRuleId: business.dokuSplitRuleId } : {}),
+      };
+      await getDokuSubBalance(profileId); // bukti profileId hidup di DOKU
+      route = candidate;
+    }
+  } catch (e) {
+    console.warn(`[DOKU sub-account] routing tenant ${businessId} tak tervalidasi, fallback merchant utama:`, (e as Error).message);
+    route = undefined;
+  }
+  routeCache.set(businessId, { at: Date.now(), route });
+  return route;
 }
 
 export type DokuSplitRuleItem = {
@@ -134,6 +198,7 @@ export async function inquiryDokuTransfer(params: {
     partnerReferenceNo: params.referenceNo,
     type: params.type,
     amount: { value: `${Math.round(params.amount)}.00`, currency: "IDR" },
+    channel: "BI_FAST",
     fromAccount: params.fromAccount,
     ...(params.beneficiaryBankCode ? { beneficiaryBankCode: params.beneficiaryBankCode } : {}),
     beneficiaryAccountNumber: params.beneficiaryAccountNumber,

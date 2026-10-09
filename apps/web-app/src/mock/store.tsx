@@ -109,6 +109,7 @@ interface CafeStore {
   refreshOrderFromBackend: (clientOrderId: string) => Promise<Order | null>
   restoreOrderHistory: (qrToken: string) => Promise<{ orders: Order[]; owner: OrderOwner | null }>
   rechargeOrderFromBackend: (clientOrderId: string, selectedBank?: string) => Promise<Order | null>
+  cancelOrderFromBackend: (clientOrderId: string) => Promise<Order | null>
   refreshStaffFromBackend: () => Promise<void>
   refreshTablesFromBackend: () => Promise<void>
   refreshIngredientsFromBackend: () => Promise<void>
@@ -565,6 +566,20 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   // QR/VA-nya gagal terbit. Gagal -> throw agar UI jujur.
   const rechargeOrderFromBackend = useCallback(async (clientOrderId: string, selectedBank?: string): Promise<Order | null> => {
     const raw = (await api.rechargePublicOrder(clientOrderId, selectedBank)) as unknown as Record<string, unknown>
+    const fe = mapBeOrderToFe(raw)
+    setOrders((prev) => {
+      const i = prev.findIndex((o) => o.clientOrderId === clientOrderId)
+      if (i === -1) return [fe, ...prev]
+      const next = [...prev]
+      next[i] = fe
+      return next
+    })
+    return fe
+  }, [])
+
+  // Batalkan order milik sendiri (mis. ganti metode bayar). Gagal -> throw agar UI jujur.
+  const cancelOrderFromBackend = useCallback(async (clientOrderId: string): Promise<Order | null> => {
+    const raw = (await api.cancelPublicOrder(clientOrderId)) as unknown as Record<string, unknown>
     const fe = mapBeOrderToFe(raw)
     setOrders((prev) => {
       const i = prev.findIndex((o) => o.clientOrderId === clientOrderId)
@@ -1100,6 +1115,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       refreshOrderFromBackend,
       restoreOrderHistory,
       rechargeOrderFromBackend,
+      cancelOrderFromBackend,
       fetchCatalogFromBackend,
       refreshStaffFromBackend,
       refreshTablesFromBackend,
@@ -1154,6 +1170,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       refreshOrderFromBackend,
       restoreOrderHistory,
       rechargeOrderFromBackend,
+      cancelOrderFromBackend,
       fetchCatalogFromBackend,
       refreshStaffFromBackend,
       refreshTablesFromBackend,

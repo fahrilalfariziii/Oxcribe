@@ -27,6 +27,40 @@ interface Props {
   onConfirm: () => void
   /** Terbitkan ulang QR/VA (partnerReferenceNo DOKU baru). Dipakai saat charge pertama gagal. */
   onRetry?: () => Promise<void>
+  /** Batalkan order ini lalu kembali (ganti metode bayar). Tanpa ini = kembali biasa. */
+  onChangeMethod?: () => Promise<void>
+}
+
+/** Parse EMV TLV (tag 2 digit + panjang 2 digit + nilai). */
+function parseEmvFields(emv: string): { tag: string; value: string }[] {
+  const out: { tag: string; value: string }[] = []
+  let i = 0
+  while (i + 4 <= emv.length) {
+    const tag = emv.slice(i, i + 2)
+    const len = parseInt(emv.slice(i + 2, i + 4), 10)
+    if (!/^\d{2}$/.test(tag) || !Number.isFinite(len)) break
+    const value = emv.slice(i + 4, i + 4 + len)
+    if (value.length < len) break
+    out.push({ tag, value })
+    i += 4 + len
+  }
+  return out
+}
+
+/** Ambil NMID dari EMV QRIS dinamis (tag 26, sub-tag berisi IDxxxxxxxx). */
+function extractNmid(qrContent: string | undefined): string | null {
+  if (!qrContent) return null
+  try {
+    for (const f of parseEmvFields(qrContent)) {
+      if (f.tag !== '26') continue
+      for (const sub of parseEmvFields(f.value)) {
+        if ((sub.tag === '01' || sub.tag === '02' || sub.tag === '03') && /^ID\d{5,}/.test(sub.value)) {
+          return sub.value
+        }
+      }
+    }
+  } catch { /* abaikan, NMID opsional */ }
+  return null
 }
 
 function formatExpiryWIB(expiry?: string): string | null {
@@ -61,7 +95,7 @@ function useCountdown(expiry?: string) {
   return text
 }
 
-export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
+export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMethod }: Props) {
   const { refreshOrderFromBackend, business } = useCafe()
   const theme = normalizeTheme(business.theme)
   const [liveOrder, setLiveOrder] = useState<Order>(order)
@@ -72,6 +106,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
   const [downloading, setDownloading] = useState(false)
   const [payNotice, setPayNotice] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
+  const [changingMethod, setChangingMethod] = useState(false)
   const qrCanvasRef = useRef<HTMLDivElement>(null)
 
   // Tombol "Cek Status" hanya pindah ke layar status bila pembayaran SUDAH lunas.
@@ -145,8 +180,26 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
       setRetrying(false)
     }
   }
+
+  // "Pilih Metode Lain": batalkan order ini di server (QR/VA ikut di-expire)
+  // lalu kembali — checkout berikutnya menerbitkan order baru.
+  async function handleChangeMethod() {
+    if (changingMethod) return
+    if (!onChangeMethod) {
+      onBack()
+      return
+    }
+    setChangingMethod(true)
+    setPayNotice(null)
+    try {
+      await onChangeMethod()
+    } catch (e) {
+      setPayNotice(e instanceof Error ? e.message : 'Gagal membatalkan pesanan. Coba lagi.')
+      setChangingMethod(false)
+    }
+  }
   useEffect(() => setLiveOrder(order), [order])
-  // Poll BE status + socket for settlement
+  // Poll BE status + socket for settlement & pembatalan kasir
   useEffect(() => {
     let cancelled = false
     let timer: number | undefined
@@ -156,6 +209,10 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
         if (cancelled) return
         if (updated) {
           setLiveOrder(updated)
+          if ((updated as Order).status === 'batal' || (updated as Order).paymentStatus === 'canceled') {
+            setPayNotice('Pesanan ini dibatalkan oleh kasir. Silakan buat pesanan baru atau kembali.')
+            return
+          }
           if (updated.paymentStatus === 'paid') {
             onConfirm()
             return
@@ -166,16 +223,28 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
     }
     // Start poll after 3s
     timer = window.setTimeout(poll, 3000)
-    // SSE untuk settlement realtime
+    // SSE untuk settlement realtime + pembatalan kasir
     let cleanup: (() => void) | undefined
     try {
       const handler = (payload: unknown) => {
         const p = payload as { clientOrderId?: string; paymentStatus?: string }
         if (p?.clientOrderId === liveOrder.clientOrderId && p?.paymentStatus === 'paid') onConfirm()
       }
+      const statusHandler = (payload: unknown) => {
+        const p = payload as { clientOrderId?: string; status?: string }
+        if (p?.clientOrderId !== liveOrder.clientOrderId || p?.status !== 'batal') return
+        refreshOrderFromBackend(liveOrder.clientOrderId)
+          .then((updated) => {
+            if (updated) {
+              setLiveOrder(updated)
+              setPayNotice('Pesanan ini dibatalkan oleh kasir. Silakan buat pesanan baru atau kembali.')
+            }
+          })
+          .catch(() => {})
+      }
       cleanup = subscribeStream({
         qrToken: (liveOrder as unknown as { qrToken?: string }).qrToken as string | undefined,
-        handlers: { 'order:payment_updated': handler },
+        handlers: { 'order:payment_updated': handler, 'order:status_updated': statusHandler },
       })
     } catch {}
     return () => {
@@ -186,6 +255,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
   }, [liveOrder.clientOrderId, refreshOrderFromBackend, onConfirm, liveOrder])
 
   const methodLabel = liveOrder.paymentMethod === 'qris' ? 'QRIS' : liveOrder.paymentMethod === 'bank_transfer' ? 'Transfer Bank' : 'Tunai'
+  const isCancelled = (liveOrder as Order).status === 'batal' || (liveOrder as Order).paymentStatus === 'canceled'
   const gatewayData = (liveOrder as Props['order']).payments?.[0]?.gatewayData as GatewayData | undefined
   const rawExpiry = gatewayData?.expiredDate || gatewayData?.raw?.expiredDate || gatewayData?.raw?.expiry_time || gatewayData?.expiry_time || gatewayData?.expiryTime
   const fallbackExpiry = (() => {
@@ -202,6 +272,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
   const expiryText = formatExpiryWIB(fallbackExpiry)
   const countdown = useCountdown(fallbackExpiry)
   const qrValue = gatewayData?.qrContent || gatewayData?.qrString
+  const nmid = extractNmid(qrValue)
   const hasQr = Boolean(qrValue || gatewayData?.qrUrl)
   // Nomor VA DOKU mengandung padding spasi Service ID — tampil & salin versi bersih.
   const vaDisplay = (gatewayData?.vaNumber ?? '').replace(/\s/g, '')
@@ -224,6 +295,15 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
         <span className="font-display text-xl font-semibold">Pembayaran</span>
       </header>
       <div className="flex-1 overflow-y-auto px-5 py-6 pb-32 scrollbar-hide">
+        {isCancelled && (
+          <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-[#ba1a1a]/40 bg-[#ba1a1a]/10 p-4">
+            <span className="material-symbols-outlined text-[20px] text-[#ba1a1a]">cancel</span>
+            <div>
+              <p className="text-sm font-bold text-[#ba1a1a]">Pesanan dibatalkan oleh kasir</p>
+              <p className="mt-0.5 text-xs text-soil">Pembayaran tidak perlu dilanjutkan. Silakan buat pesanan baru.</p>
+            </div>
+          </div>
+        )}
         <div className="mb-6 rounded-[12px] border border-[#e2e2e2] bg-white p-[17px] text-center shadow-sm">
           <p className="text-sm font-semibold text-soil">Total Pembayaran</p>
           <p className="font-display text-2xl font-bold">{formatRupiah(liveOrder.total)}</p>
@@ -245,18 +325,27 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
         )}
 
         {liveOrder.paymentMethod === 'qris' && (
-          <div className="rounded-[12px] border border-[#e2e2e2] bg-white px-5 py-6 text-center shadow-sm">
+          <div className="overflow-hidden rounded-[12px] border border-[#e2e2e2] bg-white text-center shadow-sm">
+            {/* Header standar QRIS */}
+            <div className="px-5 pb-3 pt-4" style={{ background: '#C4161C' }}>
+              <p className="text-2xl font-black italic tracking-tight text-white">QRIS</p>
+              <p className="mt-0.5 text-[10px] font-medium uppercase tracking-widest text-white/90">QR Code Standar Pembayaran Nasional</p>
+            </div>
+            <div className="px-5 py-5">
+            <p className="text-sm font-bold text-black">{business.name || 'Merchant'}</p>
+            <p className="font-display text-xl font-bold text-black">{formatRupiah(liveOrder.total)}</p>
+            {nmid && <p className="mt-1 font-mono text-[11px] text-soil">NMID: {nmid}</p>}
             {hasQr ? (
-              <>
+              <div className="mt-3">
                 {qrValue ? (
                   <button type="button" onClick={() => setQrZoom(true)} title="Ketuk untuk perbesar" aria-label="Perbesar QRIS">
-                    <div ref={qrCanvasRef} className="mx-auto w-fit border border-clay p-2 rounded-lg bg-white">
-                      <QRCodeCanvas value={qrValue} size={288} />
+                    <div ref={qrCanvasRef} className="mx-auto w-fit border-2 border-clay p-2 rounded-lg bg-white">
+                      <QRCodeCanvas value={qrValue} size={264} />
                     </div>
                   </button>
                 ) : (
                   <button type="button" onClick={() => setQrZoom(true)} title="Ketuk untuk perbesar" aria-label="Perbesar QRIS">
-                    <img src={gatewayData?.qrUrl} alt="QRIS" className="mx-auto size-72 max-w-full object-contain border border-clay p-2 rounded-lg bg-white" />
+                    <img src={gatewayData?.qrUrl} alt="QRIS" className="mx-auto size-64 max-w-full object-contain border-2 border-clay p-2 rounded-lg bg-white" />
                   </button>
                 )}
                 <button
@@ -268,9 +357,9 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
                   <span className="material-symbols-outlined text-[16px]">download</span>
                   <span>{downloading ? 'Mengunduh…' : 'Download QR'}</span>
                 </button>
-              </>
+              </div>
             ) : (
-              <div className="mx-auto max-w-[240px]">
+              <div className="mx-auto mt-3 max-w-[240px]">
                 <p className="text-sm font-semibold text-black">QR belum terbit dari DOKU</p>
                 <p className="mt-1 text-xs text-soil">Pembayaran tercatat, tapi kode QR gagal dibuat (mis. gangguan gateway). Muat ulang untuk menerbitkan QR baru.</p>
                 {retryError && <p className="mt-2 text-xs font-medium text-[#ba1a1a]">{retryError}</p>}
@@ -288,6 +377,8 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
             {hasQr && expiryText && <p className="mt-3 text-xs text-soil">Bayar sebelum <span className="font-semibold text-black">{expiryText}</span></p>}
             {hasQr && countdown && <p className="mt-1 text-[11px] font-bold text-sage">{countdown}</p>}
             {hasQr && <p className="mt-3 text-xs text-soil">Scan dengan GoPay, ShopeePay, DANA, OVO, LinkAja atau m-banking yang dukung QRIS. QR berlaku 15 menit.</p>}
+            <p className="mt-3 border-t border-dashed border-[#e2e2e2] pt-2 text-[10px] text-stone">QRIS dinamis · diterbitkan DOKU · #{liveOrder.orderNumber}</p>
+            </div>
           </div>
         )}
 
@@ -350,10 +441,20 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
         {payNotice && (
           <p className="rounded-[12px] border border-[#9a6b2f]/40 bg-[#f5e8c8] px-4 py-3 text-xs font-medium text-black">{payNotice}</p>
         )}
-        <Button className="h-12 w-full rounded-[8px]" style={{ background: theme.primary }} onClick={handleCheckStatus}>
-          {checking ? 'Mengecek…' : 'Cek Status Pembayaran'}
-        </Button>
-        <Button variant="outline" className="h-12 w-full rounded-[8px]" onClick={onBack}>Pilih Metode Lain</Button>
+        {isCancelled ? (
+          <Button className="h-12 w-full rounded-[8px]" style={{ background: theme.primary }} onClick={onBack}>
+            Buat Pesanan Baru
+          </Button>
+        ) : (
+          <>
+            <Button className="h-12 w-full rounded-[8px]" style={{ background: theme.primary }} onClick={handleCheckStatus}>
+              {checking ? 'Mengecek…' : 'Cek Status Pembayaran'}
+            </Button>
+            <Button variant="outline" className="h-12 w-full rounded-[8px]" onClick={handleChangeMethod} disabled={changingMethod}>
+              {changingMethod ? 'Membatalkan…' : 'Pilih Metode Lain'}
+            </Button>
+          </>
+        )}
       </div>
       {qrZoom && qrValue && (
         <div
@@ -361,10 +462,15 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry }: Props) {
           onClick={() => setQrZoom(false)}
         >
           <div className="text-center">
-            <div className="mx-auto w-fit rounded-xl bg-white p-3">
-              <QRCodeCanvas value={qrValue} size={420} />
+            <div className="mx-auto w-fit overflow-hidden rounded-xl bg-white">
+              <div className="px-6 pb-2 pt-3" style={{ background: '#C4161C' }}>
+                <p className="text-xl font-black italic text-white">QRIS</p>
+              </div>
+              <div className="p-3">
+                <QRCodeCanvas value={qrValue} size={400} />
+              </div>
             </div>
-            <p className="mt-3 text-sm font-semibold text-white">Scan QR ini · ketuk untuk tutup</p>
+            <p className="mt-3 text-sm font-semibold text-white">{business.name || ''} · ketuk untuk tutup</p>
             <p className="mt-1 font-display text-lg font-bold text-white">{formatRupiah(liveOrder.total)}</p>
           </div>
         </div>

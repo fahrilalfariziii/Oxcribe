@@ -13,7 +13,7 @@ ordersRouter.use(requireAuth);
 const listQuerySchema = z.object({
   status: z.enum(["diterima", "diproses", "siap", "selesai"]).optional(),
   source: z.enum(["self_order", "pos"]).optional(),
-  paymentStatus: z.enum(["pending", "paid", "failed"]).optional(),
+  paymentStatus: z.enum(["pending", "paid", "failed", "canceled"]).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 

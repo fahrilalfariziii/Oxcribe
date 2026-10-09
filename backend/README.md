@@ -282,7 +282,7 @@ backend/
 | POST   | `/api/public/orders`                            | Checkout (cash manual / qris-ewallet-VA via Midtrans bila aktif)   |
 | POST   | `/api/public/orders/by-client/:clientOrderId/recharge` | Terbitkan ulang charge Midtrans (ID unik baru) untuk order pending yang QR/VA-nya gagal terbit |
 | GET    | `/api/public/orders/:clientOrderId`             | Cek status order (polling fallback)                                |
-| GET    | `/api/public/orders/by-number/:orderNumber/status` | Polling status Midtrans + auto-sync paid + fallbackQrUrl QRIS   |
+| GET    | `/api/public/orders/by-number/:orderNumber/status` | DINONAKTIFKAN (410 Gone, bocor enumerasi) — pakai `by-client/:clientOrderId/status` |
 | POST   | `/api/public/midtrans/notification`             | Webhook Midtrans (verify signature, settlement→paid otomatis, expire/deny/cancel→failed + auto-batal) |
 
 ### Auth
@@ -407,6 +407,9 @@ curl -s "http://localhost:4000/api/platform/audit-logs?limit=5" -H "Authorizatio
 | POST | `/api/platform/tenants/:id/reset-owner-password` | superadmin | Reset darurat |
 | PATCH/DELETE | `/api/platform/tenants/:id/feature-overrides` | admin | Override per-key / reset ke paket |
 | PATCH | `/api/platform/tenants/:id/platform-fee` | admin | Platform fee self-order per kafe (%/flat + bearer, audit `platform_fee_changed`) |
+| PATCH | `/api/platform/tenants/:id/settlement` | superadmin | Simpan + verifikasi rekening pencairan via transfer-inquiry (tanpa gerak dana) → `VERIFIED`/`MISMATCH` |
+| POST | `/api/platform/tenants/:id/doku-subaccount/transfer-from-main` | superadmin | Payout dari akun IDR utama (dana historis campur; wajib `tenantNote`; `dryRun` cek saja / `confirm=true` eksekusi, audit `doku_main_payout`) |
+| POST | `/api/public/doku/sub-account/notification` | publik (verify X-SIGNATURE) | Webhook Sub-Account V2 (register/transfer/dll) — fail-closed, audit `doku_subaccount_event` |
 | GET/PUT | `/api/platform/plans(/:code)` | admin/superadmin | Lihat semua / ubah paket |
 | GET/POST | `/api/platform/invoices` | admin/superadmin | List / buat manual |
 | PATCH | `/api/platform/invoices/:id/pay` | superadmin | Tandai lunas manual |
@@ -456,6 +459,8 @@ di semua endpoint operasional.
   (merge — webhook tidak menghapus QR/VA charge).
 - Webhook `POST /api/public/doku/notification` verifikasi `X-SIGNATURE` simetris;
   butuh URL publik — lokal pakai ngrok: `DOKU_NOTIFICATION_URL=https://<xxx>.ngrok-free.app/api/public/doku/notification`.
+  Webhook Sub-Account V2 memakai SATU callback URL sendiri (register/transfer/dll,
+  diregistrasi terpisah di setup merchant): `https://<xxx>.ngrok-free.app/api/public/doku/sub-account/notification`.
 - Tanpa ngrok, pakai `GET /api/public/orders/by-client/:clientOrderId/status` untuk poll + auto-sync `paid`
   (QRIS via `/qr/qr-mpm-query`, VA via `/orders/v1.0/transfer-va/status`).
 - Isi `.env`: `DOKU_CLIENT_ID, DOKU_SECRET_KEY, DOKU_PRIVATE_KEY (\n), DOKU_MERCHANT_ID, DOKU_TERMINAL_ID, DOKU_POSTAL_CODE=10110, DOKU_IS_PRODUCTION=false` untuk Sandbox.

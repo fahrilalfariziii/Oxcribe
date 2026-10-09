@@ -21,6 +21,30 @@ const CATEGORY_TABS: { id: OrderStatus; label: string; }[] = [
   { id: 'siap', label: 'Siap Diambil' },
 ]
 
+// Info VA untuk order gateway transfer-bank di Live Orders (bukan order manual kasir).
+// Kasir perlu melihat nomor VA + status tunggu agar bisa mengarahkan pelanggan.
+function VaBlock({ order }: { order: Order }) {
+  if (order.paymentMethod !== 'bank_transfer' || isManualOrder(order)) return null
+  const gw = (order as unknown as { payments?: { gatewayData?: { vaNumber?: string; vaBank?: string } }[] }).payments?.[0]?.gatewayData
+  const va = (gw?.vaNumber ?? '').replace(/\s/g, '')
+  if (!va) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-sand bg-cream px-3 py-2">
+        <span className="material-symbols-outlined animate-spin text-[18px] text-sage">progress_activity</span>
+        <span className="flex-1 text-[11px] font-medium text-stone">Nomor VA belum terbit, menunggu gateway…</span>
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border border-sand bg-cream px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-stone">
+        VA{gw?.vaBank ? ` — ${gw.vaBank.toUpperCase()}` : ''}
+      </p>
+      <p className="font-mono text-sm font-bold tracking-wider text-black">{va}</p>
+    </div>
+  )
+}
+
 export function OrdersPage() {
   const { orders, updateOrderStatus, markPaid, business, refreshOrdersFromBackend } = useCafe()
   const [activeTab, setActiveTab] = useState<OrderStatus>('diterima')
@@ -29,6 +53,7 @@ export function OrdersPage() {
   const [payingId, setPayingId] = useState<string | null>(null)
   const [payError, setPayError] = useState<string | null>(null)
   const [checkingPayment, setCheckingPayment] = useState(false)
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null)
   const [historyDate, setHistoryDate] = useState(() => {
     const d = new Date()
     const pad = (n: number) => String(n).padStart(2, '0')
@@ -36,6 +61,8 @@ export function OrdersPage() {
   })
   const [historyHour, setHistoryHour] = useState<string>('all')
   const [historyQuery, setHistoryQuery] = useState('')
+  // Sub-filter status riwayat: semua (selesai + batal), selesai saja, atau batal saja
+  const [historyStatus, setHistoryStatus] = useState<'all' | 'selesai' | 'batal'>('all')
   const knownOrderIds = useRef<Set<string>>(new Set())
   const soundEnabledRef = useRef(business.soundEnabled)
   soundEnabledRef.current = business.soundEnabled
@@ -118,6 +145,9 @@ export function OrdersPage() {
       const beId = api.toBackendId(order.id)
       await api.cancelOrder(beId || order.id)
       updateOrderStatus(order.id, 'batal')
+      setCancelNotice(`Pesanan #${order.orderNumber} dibatalkan.`)
+      window.setTimeout(() => setCancelNotice(null), 4000)
+      refreshOrdersFromBackend().catch(() => {})
     } catch {
       updateOrderStatus(order.id, 'batal')
     }
@@ -167,6 +197,7 @@ export function OrdersPage() {
   const filteredOrders = orders.filter((o) => {
     if (activeTab === 'selesai') {
       if (o.status !== 'selesai' && o.status !== 'batal') return false
+      if (historyStatus !== 'all' && o.status !== historyStatus) return false
       if (historyDate && !sameLocalDay(o.createdAt, historyDate)) return false
       if (historyHour !== 'all') {
         const h = new Date(o.createdAt).getHours()
@@ -178,9 +209,10 @@ export function OrdersPage() {
     if (o.status !== activeTab) return false
     return true
   })
-  const historyFilterActive = activeTab === 'selesai' && (historyDate !== todayId || historyHour !== 'all' || historyQuery.trim() !== '')
+  const historyFilterActive = activeTab === 'selesai' && (historyStatus !== 'all' || historyDate !== todayId || historyHour !== 'all' || historyQuery.trim() !== '')
 
   function resetHistoryFilter() {
+    setHistoryStatus('all')
     setHistoryDate(todayId)
     setHistoryHour('all')
     setHistoryQuery('')
@@ -209,6 +241,13 @@ export function OrdersPage() {
           </span>
           <span className="text-xs font-bold text-stone">✕</span>
         </button>
+      )}
+
+      {cancelNotice && (
+        <div className="mb-4 flex w-full items-center gap-3 rounded-[12px] border border-[#ba1a1a]/40 bg-[#ba1a1a]/10 px-4 py-3 text-left shadow-xs">
+          <span className="material-symbols-outlined text-[22px] text-[#ba1a1a]">cancel</span>
+          <span className="flex-1 text-sm font-medium text-black">{cancelNotice}</span>
+        </div>
       )}
 
       {/* Baris Navigasi Utama: Terbagi Kiri (Kategori) & Kanan (Riwayat) */}
@@ -268,6 +307,33 @@ export function OrdersPage() {
       {/* Filter Riwayat: hari + jam + nama pelanggan (hanya di tab selesai) */}
       {activeTab === 'selesai' && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[12px] border border-[#c4c7c7] bg-white p-3">
+          <div className="flex items-center gap-1 rounded-[8px] bg-cream p-1" role="group" aria-label="Filter status riwayat">
+            {([
+              { id: 'all', label: 'Semua' },
+              { id: 'selesai', label: 'Selesai' },
+              { id: 'batal', label: 'Dibatalkan' },
+            ] as const).map((opt) => {
+              const count = opt.id === 'all'
+                ? completedCount
+                : orders.filter((o) => o.status === opt.id).length
+              const selected = historyStatus === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setHistoryStatus(opt.id)}
+                  className={`flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-xs font-semibold transition-all ${
+                    selected ? 'bg-black text-white shadow-xs' : 'text-stone hover:text-black'
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  <span className={`rounded-full px-1.5 text-[10px] font-bold ${selected ? 'bg-white/20 text-white' : 'bg-stone/15 text-stone'}`}>
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
           <div className="relative">
             <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-stone">calendar_month</span>
             <input
@@ -357,7 +423,10 @@ export function OrdersPage() {
                 {payError && payingId === order.id && (
                   <p className="rounded-lg border border-[#ba1a1a]/30 bg-[#ba1a1a]/10 px-3 py-2 text-[11px] font-medium text-[#ba1a1a]">{payError}</p>
                 )}
-                {/* Non-cash via gateway: animasi menunggu pembayaran (tanpa tombol lunas). Order manual kasir langsung dapat tombol Tandai Lunas di bawah. */}
+                {/* Non-cash via gateway: VA (transfer bank) + animasi menunggu pembayaran. Order manual kasir langsung dapat tombol Tandai Lunas di bawah. */}
+                {order.paymentStatus !== 'paid' && order.paymentMethod === 'bank_transfer' && !isManualOrder(order) && activeTab !== 'selesai' && (
+                  <VaBlock order={order} />
+                )}
                 {order.paymentStatus !== 'paid' && order.paymentMethod !== 'cash' && !isManualOrder(order) && activeTab !== 'selesai' && (
                   <div className="flex items-center gap-2 rounded-lg border border-sand bg-cream px-3 py-2">
                     <span className="material-symbols-outlined animate-spin text-[18px] text-sage">progress_activity</span>

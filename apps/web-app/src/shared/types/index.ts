@@ -2,7 +2,7 @@ export type UserRole = 'owner' | 'kasir' | 'barista'
 
 export type OrderStatus = 'diterima' | 'diproses' | 'siap' | 'selesai' | 'batal'
 export type PaymentMethod = 'cash' | 'qris' | 'bank_transfer'
-export type PaymentStatus = 'pending' | 'paid' | 'failed'
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'canceled'
 
 export interface PaymentSettings {
   instruction?: string
