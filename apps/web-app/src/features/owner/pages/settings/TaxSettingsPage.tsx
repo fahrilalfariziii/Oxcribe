@@ -160,7 +160,7 @@ export function TaxSettingsPage() {
         {!svcAllowed && (
           <div className="flex items-center gap-2 rounded-lg bg-sand/40 p-3 text-xs font-semibold text-stone border border-clay/40">
             <span className="material-symbols-outlined text-[18px]">lock</span>
-            <span>Service Charge belum aktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan.</span>
+            <span>Service Charge belum aktif untuk kafe Anda. Hubungi tim admin Oxcribe untuk mengaktifkan.</span>
           </div>
         )}
 
@@ -249,7 +249,7 @@ export function TaxSettingsPage() {
         {!taxAllowed && (
           <div className="flex items-center gap-2 rounded-lg bg-sand/40 p-3 text-xs font-semibold text-stone border border-clay/40">
             <span className="material-symbols-outlined text-[18px]">lock</span>
-            <span>Pajak belum aktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan.</span>
+            <span>Pajak belum aktif untuk kafe Anda. Hubungi tim admin Oxcribe untuk mengaktifkan.</span>
           </div>
         )}
 

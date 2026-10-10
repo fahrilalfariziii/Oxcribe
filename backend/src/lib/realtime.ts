@@ -22,7 +22,7 @@ export type RealtimeEventType = (typeof REALTIME_EVENTS)[number];
 type BufferedEntry = { id: number; type: RealtimeEventType; data: unknown };
 type Subscriber = { res: Response; businessId: number; lastSentId: number; heartbeat: NodeJS.Timeout };
 
-const CHANNEL = "ordria:realtime";
+const CHANNEL = "oxcribe:realtime";
 const BUFFER_PER_BUSINESS = 50;
 const HEARTBEAT_MS = 25000;
 

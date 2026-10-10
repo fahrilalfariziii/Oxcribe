@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { platformApi, type LeadRow } from '../lib/platform-api'
 import { Alert, Badge, Button, Card, PageHeader, Select, Skeleton } from '../components/ui'
+import { StatCards } from '../components/StatCards'
 
 const STATUSES = ['', 'new', 'contacted', 'onboarded', 'rejected']
 
@@ -61,6 +62,17 @@ export function LeadsPage() {
         </form>
       </Card>
       {error && <Alert tone="error">{error}</Alert>}
+      {!loading && leads.length > 0 && (
+        <StatCards
+          columns={4}
+          stats={[
+            { label: 'Total Leads', value: leads.length.toLocaleString('id-ID'), icon: 'forward_to_inbox' },
+            { label: 'Baru', value: leads.filter((l) => l.status === 'new').length.toLocaleString('id-ID'), icon: 'fiber_new' },
+            { label: 'Dihubungi', value: leads.filter((l) => l.status === 'contacted').length.toLocaleString('id-ID'), icon: 'call' },
+            { label: 'Onboarded', value: leads.filter((l) => l.status === 'onboarded').length.toLocaleString('id-ID'), icon: 'check_circle' },
+          ]}
+        />
+      )}
       {loading ? (
         <Skeleton lines={4} />
       ) : leads.length === 0 ? (
@@ -85,7 +97,8 @@ export function LeadsPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {['contacted', 'onboarded', 'rejected'].map((s) => (
                   <Button key={s} variant="secondary" size="sm" onClick={() => void setStatusOf(l.id, s)}>
-                    → {s}
+                    <span className="material-symbols-outlined text-lg" aria-hidden>arrow_forward</span>
+                    {s}
                   </Button>
                 ))}
               </div>

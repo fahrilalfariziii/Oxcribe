@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 // agar radius, spacing, dan pola visual konsisten.
 
 // ---------- Button ----------
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success'
 
 export function Button({
   variant = 'primary',
@@ -19,6 +19,7 @@ export function Button({
     primary: 'bg-slate-900 text-white shadow-sm hover:bg-slate-700',
     secondary: 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50',
     danger: 'bg-red-700 text-white shadow-sm hover:bg-red-600',
+    success: 'bg-emerald-700 text-white shadow-sm hover:bg-emerald-600',
     ghost: 'text-slate-600 hover:bg-slate-100',
   }
   return <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} {...props} />
@@ -148,8 +149,8 @@ export function Table({
   )
 }
 
-export function Td({ className = '', children }: { className?: string; children: ReactNode }) {
-  return <td className={`px-4 py-3 align-top ${className}`}>{children}</td>
+export function Td({ className = '', colSpan, children }: { className?: string; colSpan?: number; children: ReactNode }) {
+  return <td colSpan={colSpan} className={`px-4 py-3 align-top ${className}`}>{children}</td>
 }
 
 // ---------- Alert / Empty / Skeleton ----------

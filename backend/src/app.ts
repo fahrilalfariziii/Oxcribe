@@ -48,7 +48,7 @@ export function createApp() {
   app.get("/health", (_req, res) => {
     res.json({
       status: "ok",
-      service: "ordria-backend",
+      service: "oxcribe-backend",
       time: new Date().toISOString(),
       build: "2026-09-12-no-vercel",
     });

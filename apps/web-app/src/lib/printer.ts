@@ -138,7 +138,7 @@ export function buildTestPatternBytes(): Uint8Array {
   b.push(GS, 0x21, 0x11)
   b.push(...line('TEST PRINTER'))
   b.push(GS, 0x21, 0x00)
-  b.push(...line('Ordria POS'))
+  b.push(...line('Oxcribe POS'))
   b.push(...divider('='))
   b.push(...line('12345678901234567890123456789012'))
   b.push(...row('Kiri', 'Kanan'))

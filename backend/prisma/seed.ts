@@ -369,8 +369,8 @@ async function main() {
   // Akun platform admin (POST /api/platform/auth/login) — terpisah dari staff tenant.
   await prisma.platformAdmin.createMany({
     data: [
-      { name: "Super Admin", email: "admin@ordria.id", passwordHash: await hash("Admin123!"), role: "superadmin" },
-      { name: "Support", email: "support@ordria.id", passwordHash: await hash("Support123!"), role: "support" },
+      { name: "Super Admin", email: "admin@oxcribe.id", passwordHash: await hash("Admin123!"), role: "superadmin" },
+      { name: "Support", email: "support@oxcribe.id", passwordHash: await hash("Support123!"), role: "support" },
     ],
   });
 
@@ -390,7 +390,7 @@ async function main() {
       {
         sectionKey: "features",
         content: {
-          heading: "Nilai Unggulan Ordria untuk Operasional Kafe",
+          heading: "Nilai Unggulan Oxcribe untuk Operasional Kafe",
           items: [
             { icon: "qr_code_2", title: "Zero App Download", desc: "Pelanggan scan QR di meja dan langsung memesan dari browser HP — tanpa install aplikasi apa pun.", tag: "Fast Checkout" },
             { icon: "bolt", title: "Feed Order Real-time", desc: "Pesanan self-order masuk ke layar kasir/barista seketika, lengkap dengan notifikasi suara dan update status live ke pelanggan.", tag: "Auto Sync Data" },
@@ -404,7 +404,7 @@ async function main() {
         sectionKey: "faq",
         content: {
           heading: "Pertanyaan yang Sering Diajukan",
-          subtitle: "Semua yang perlu Anda ketahui mengenai implementasi Ordria di kafe Anda.",
+          subtitle: "Semua yang perlu Anda ketahui mengenai implementasi Oxcribe di kafe Anda.",
           items: [
             { q: "Apakah pelanggan harus download aplikasi untuk Self-Ordering?", a: "Tidak. Pelanggan cukup mengarahkan kamera HP ke QR di meja — halaman menu langsung terbuka di browser dan bisa memilih varian hingga membayar via QRIS atau tunai di kasir." },
             { q: "Bagaimana jika koneksi internet di kafe tiba-tiba terputus?", a: "Frontoffice tetap bisa mencatat transaksi tunai dan pergerakan stok sebagai data pending, lalu tersinkron otomatis saat koneksi kembali. Pembayaran non-tunai membutuhkan koneksi untuk verifikasi." },
@@ -420,7 +420,7 @@ async function main() {
           badge: "Onboarding Terpandu",
           title: "Siap Tingkatkan Efisiensi & Omset Kafe Anda Hari Ini?",
           subtitle:
-            "Diskusikan kebutuhan kafe Anda bersama tim sales Ordria — dari pilihan paket, jadwal live demo, hingga rencana implementasi di outlet Anda.",
+            "Diskusikan kebutuhan kafe Anda bersama tim sales Oxcribe — dari pilihan paket, jadwal live demo, hingga rencana implementasi di outlet Anda.",
           note: "✓ Setup dibantu tim spesialis • Data isolasi aman tingkat multi-tenant • Support responsif",
         },
         sortOrder: 4,
@@ -433,7 +433,7 @@ async function main() {
       {
         sectionKey: "services",
         content: {
-          badge: "Jasa Website Ordria",
+          badge: "Jasa Website Oxcribe",
           heading: "Website Profesional untuk Bisnis Anda",
           subtitle:
             "Dari company profile hingga web app custom — dirancang rapi, cepat, dan siap mengembangkan bisnis. Tanpa harga paket, semua via konsultasi gratis.",
@@ -458,16 +458,16 @@ async function main() {
           badge: "SaaS POS Kafe & Jasa Pembuatan Website",
           title: "Dua Solusi Digital untuk Bisnis Anda.",
           subtitle:
-            "Ordria menghadirkan sistem kasir self-order untuk coffee shop modern dan jasa pembuatan website profesional — pilih yang sesuai kebutuhan Anda.",
+            "Oxcribe menghadirkan sistem kasir self-order untuk coffee shop modern dan jasa pembuatan website profesional — pilih yang sesuai kebutuhan Anda.",
           products: [
-            { icon: "point_of_sale", title: "Ordria POS — SaaS Kafe", desc: "Kasir, self-order QR meja, manajemen stok, dan analitik owner dalam satu aplikasi berlangganan.", ctaLabel: "Lihat Paket POS", href: "/pos-kafe" },
-            { icon: "language", title: "Jasa Website Ordria", desc: "Company profile, landing page, e-commerce, hingga web app custom — via konsultasi gratis.", ctaLabel: "Jelajahi Jasa Website", href: "/jasa-website" },
+            { icon: "point_of_sale", title: "Oxcribe POS — SaaS Kafe", desc: "Kasir, self-order QR meja, manajemen stok, dan analitik owner dalam satu aplikasi berlangganan.", ctaLabel: "Lihat Paket POS", href: "/pos-kafe" },
+            { icon: "language", title: "Jasa Website Oxcribe", desc: "Company profile, landing page, e-commerce, hingga web app custom — via konsultasi gratis.", ctaLabel: "Jelajahi Jasa Website", href: "/jasa-website" },
           ],
           cta: { title: "Belum yakin pilih yang mana?", subtitle: "Ceritakan kebutuhan Anda — tim kami akan mengarahkan ke solusi yang paling pas." },
           faqs: [
-            { q: "Apa itu Ordria?", a: "Ordria menghadirkan dua solusi digital: Ordria POS, aplikasi kasir & self-order berlangganan untuk coffee shop, dan Jasa Website Ordria, layanan pembuatan website profesional untuk berbagai bisnis." },
-            { q: "Apa bedanya Ordria POS dan Jasa Website?", a: "Ordria POS adalah produk SaaS siap pakai dengan paket bulanan — daftar, aktivasi, langsung jalan. Jasa Website adalah layanan custom: setiap website dirancang dan dibangun sesuai kebutuhan spesifik bisnis Anda lewat konsultasi gratis." },
-            { q: "Bagaimana cara memulai?", a: "Untuk Ordria POS, lihat halaman paket lalu hubungi sales untuk aktivasi. Untuk jasa website, buka halaman Jasa Website Ordria lalu kirim kebutuhan Anda lewat formulir konsultasi — gratis tanpa komitmen." },
+            { q: "Apa itu Oxcribe?", a: "Oxcribe menghadirkan dua solusi digital: Oxcribe POS, aplikasi kasir & self-order berlangganan untuk coffee shop, dan Jasa Website Oxcribe, layanan pembuatan website profesional untuk berbagai bisnis." },
+            { q: "Apa bedanya Oxcribe POS dan Jasa Website?", a: "Oxcribe POS adalah produk SaaS siap pakai dengan paket bulanan — daftar, aktivasi, langsung jalan. Jasa Website adalah layanan custom: setiap website dirancang dan dibangun sesuai kebutuhan spesifik bisnis Anda lewat konsultasi gratis." },
+            { q: "Bagaimana cara memulai?", a: "Untuk Oxcribe POS, lihat halaman paket lalu hubungi sales untuk aktivasi. Untuk jasa website, buka halaman Jasa Website Oxcribe lalu kirim kebutuhan Anda lewat formulir konsultasi — gratis tanpa komitmen." },
             { q: "Bagaimana pembayaran dan dukungannya?", a: "Langganan POS mendukung QRIS, transfer bank, dan tunai dengan invoice bulanan. Jasa website memakai penawaran per proyek. Keduanya didukung tim support yang bisa dihubungi via WhatsApp dan email." },
           ],
         },
@@ -478,8 +478,8 @@ async function main() {
 
   console.log("----------------------------------------------------");
   console.log("Login platform (POST /api/platform/auth/login):");
-  console.log("  Superadmin -> admin@ordria.id / Admin123!");
-  console.log("  Support    -> support@ordria.id / Support123!");
+  console.log("  Superadmin -> admin@oxcribe.id / Admin123!");
+  console.log("  Support    -> support@oxcribe.id / Support123!");
   console.log("----------------------------------------------------");
 }
 

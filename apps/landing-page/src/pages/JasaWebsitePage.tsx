@@ -206,7 +206,7 @@ export function JasaWebsitePage() {
               Tanya Jawab Jasa
             </span>
             <h2 className="font-display text-[clamp(1.75rem,5vw,3rem)] font-bold leading-tight tracking-tight text-on-surface">
-              Seputar Jasa Website Ordria
+              Seputar Jasa Website Oxcribe
             </h2>
           </div>
           <div className="space-y-4">

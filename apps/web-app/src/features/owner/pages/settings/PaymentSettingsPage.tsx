@@ -85,7 +85,7 @@ export function PaymentSettingsPage() {
         <div className="rounded-xl border border-sand bg-cream/40 p-4">
           <h2 className="font-bold text-black">Sumber DOKU (Global)</h2>
           <p className="mt-1 text-xs text-stone">
-            Semua tenant memakai akun DOKU Ordria (SNAP Direct API).
+            Semua tenant memakai akun DOKU Oxcribe (SNAP Direct API).
             {business.dokuConfigured === false && ' Kredensial belum dikonfigurasi — order non-tunai akan tercatat tanpa QR/VA sampai admin mengisi env.'}
           </p>
         </div>

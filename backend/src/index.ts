@@ -13,7 +13,7 @@ const server = http.createServer(app);
 initRealtime().catch((e) => console.error("[realtime] init gagal:", e));
 
 server.listen(PORT, () => {
-  console.log(`Ordria backend jalan di http://localhost:${PORT}`);
+  console.log(`Oxcribe backend jalan di http://localhost:${PORT}`);
   console.log(`Health check:      http://localhost:${PORT}/health`);
   console.log(`API base:          http://localhost:${PORT}/api`);
 });

@@ -1,6 +1,12 @@
 # PRD — Project Requirements Document
 ## Fase 3: Transformasi ke SaaS Multi-Tenant (Landing Page + Platform Admin + Paket Berlangganan)
 
+> **Status dokumen (Oktober 2026):** PRD historis Fase 3, dipertahankan apa adanya sebagai
+> acuan layer SaaS. Divergensi as-built yang sudah tervalidasi: brand produk = **Oxcribe**,
+> realtime = **SSE**, agregator dana = **DOKU Sub-Account V2** (split rule dieksekusi saat
+> settlement H+1 — lihat `docs/Operasional-DOKU.md`). Skema dan kontrak API mengikuti
+> implementasi di `backend/` bila berbeda dengan dokumen ini.
+
 > **Dokumen ini adalah lanjutan dari `prd_POS_updated.md` (Fase 0–2).** Seluruh domain operasional yang sudah dibangun — Self-Ordering, Frontoffice (Kasir/Barista), dan BackOffice (Owner) — **tidak dibangun ulang**. PRD ini menambahkan **layer platform** di atasnya: (1) **Landing Page** untuk akuisisi pelanggan baru, (2) **Platform Admin Dashboard (Internal)** untuk mengelola seluruh kafe (tenant) yang berlangganan, dan (3) **sistem paket berlangganan** (Starter, Pro, Enterprise) yang membatasi akses fitur per tenant. Skema 12 tabel inti pada PRD sebelumnya dipertahankan penuh dan menjadi domain "tenant" di bawah `business_id`.
 
 ---

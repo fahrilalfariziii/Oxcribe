@@ -1,5 +1,12 @@
 # PRD — Project Requirements Document
 
+> **Status dokumen (Oktober 2026):** PRD historis Fase 0–2, dipertahankan apa adanya sebagai
+> acuan domain. Divergensi as-built yang sudah tervalidasi: payment gateway = **DOKU**
+> (bukan Midtrans/Xendit — QRIS/VA via SNAP Direct API), realtime = **SSE**
+> (bukan Socket.io/WebSocket), metode = `cash|qris|bank_transfer` (e-wallet dihapus),
+> brand produk = **Oxcribe**. Untuk operasional dana terkini lihat
+> `docs/Operasional-DOKU.md`; untuk endpoint terkini lihat `backend/README.md`.
+
 ## 1. Overview
 
 Aplikasi ini bertujuan untuk mendigitalkan dan menyederhanakan proses pemesanan coffee shop, mulai dari pelanggan melakukan self-order melalui QR Code di meja, pesanan masuk secara real-time ke kasir/barista, proses pembayaran, hingga pengelolaan menu, meja, stok, dan analitik oleh owner.

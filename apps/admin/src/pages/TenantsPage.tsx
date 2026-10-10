@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { platformApi, type TenantRow } from '../lib/platform-api'
 import { Alert, Badge, Button, Card, Input, PageHeader, Select, Skeleton, Table, Td } from '../components/ui'
+import { StatCards } from '../components/StatCards'
 import { TenantCreateSheet } from '../components/TenantCreateSheet'
 
 const STATUSES = ['', 'active', 'past_due', 'suspended', 'canceled']
@@ -61,7 +62,7 @@ export function TenantsPage() {
             e.preventDefault()
             void load()
           }}
-          className="flex items-center gap-2 overflow-x-auto"
+          className="flex flex-wrap items-center gap-2"
         >
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari nama / email / slug…" className="h-10 min-w-44 flex-2" />
           <Select value={plan} onChange={(e) => setPlan(e.target.value)} className="h-10 min-w-40 flex-1">
@@ -85,6 +86,29 @@ export function TenantsPage() {
       </Card>
 
       {error && <Alert tone="error">{error}</Alert>}
+      {!loading && tenants.length > 0 && (
+        <StatCards
+          columns={4}
+          stats={[
+            { label: 'Total Tenant', value: tenants.length.toLocaleString('id-ID'), icon: 'store' },
+            {
+              label: 'Langganan Aktif',
+              value: tenants.filter((t) => !t.isPlatformSuspended && t.subscriptionStatus === 'active').length.toLocaleString('id-ID'),
+              icon: 'verified',
+            },
+            {
+              label: 'Perlu Perhatian',
+              value: tenants.filter((t) => t.isPlatformSuspended || (t.subscriptionStatus !== 'active' && t.subscriptionStatus !== null)).length.toLocaleString('id-ID'),
+              icon: 'warning',
+            },
+            {
+              label: 'Order 30 Hari',
+              value: tenants.reduce((s, t) => s + Number(t.orders30d || 0), 0).toLocaleString('id-ID'),
+              icon: 'shopping_bag',
+            },
+          ]}
+        />
+      )}
       {loading ? (
         <Skeleton lines={5} />
       ) : (

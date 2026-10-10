@@ -4,6 +4,7 @@ import { PlatformLayout } from './components/Layout'
 import { LoginPage } from './pages/LoginPage'
 import { TenantsPage } from './pages/TenantsPage'
 import { TenantDetailPage } from './pages/TenantDetailPage'
+import { UsersPage } from './pages/UsersPage'
 import { PlansPage } from './pages/PlansPage'
 import { InvoicesPage } from './pages/InvoicesPage'
 import { LeadsPage } from './pages/LeadsPage'
@@ -27,6 +28,7 @@ export default function App() {
           <Route index element={<Navigate to="tenants" replace />} />
           <Route path="tenants" element={<TenantsPage />} />
           <Route path="tenants/:id" element={<TenantDetailPage />} />
+          <Route path="users" element={<UsersPage />} />
           <Route path="plans" element={<PlansPage />} />
           <Route path="invoices" element={<InvoicesPage />} />
           <Route path="leads" element={<LeadsPage />} />

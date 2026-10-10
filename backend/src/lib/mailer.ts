@@ -25,11 +25,11 @@ export async function sendResetPasswordEmail(to: string, resetUrl: string): Prom
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
-    subject: "Reset password akun Ordria Anda",
+    subject: "Reset password akun Oxcribe Anda",
     text: [
       "Halo,",
       "",
-      "Kami menerima permintaan reset password untuk akun Ordria Anda.",
+      "Kami menerima permintaan reset password untuk akun Oxcribe Anda.",
       `Klik link berikut (berlaku 1 jam, sekali pakai): ${resetUrl}`,
       "",
       "Abaikan email ini bila Anda tidak memintanya.",

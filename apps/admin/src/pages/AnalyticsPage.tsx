@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { platformApi } from '../lib/platform-api'
-import { Alert, Card, PageHeader, Skeleton } from '../components/ui'
+import { Alert, Card, CardTitle, PageHeader, Skeleton } from '../components/ui'
+import { StatCards } from '../components/StatCards'
 
 type Overview = {
   tenantsPerPlan: { planCode: string | null; count: number }[]
@@ -28,38 +29,57 @@ export function AnalyticsPage() {
         <Skeleton lines={4} />
       ) : data ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Estimasi MRR</p>
-              <p className="tabular mt-1 text-2xl font-bold text-slate-900">Rp {Number(data.mrr).toLocaleString('id-ID')}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Langganan aktif</p>
-              <p className="tabular mt-1 text-2xl font-bold text-slate-900">{data.activeSubscriptions}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Tenant per paket</p>
-              <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                {data.tenantsPerPlan.map((r) => (
-                  <li key={r.planCode ?? 'none'} className="flex justify-between">
-                    <span>{r.planCode ?? '(tanpa paket)'}</span>
-                    <strong className="tabular">{r.count}</strong>
-                  </li>
-                ))}
+          <StatCards
+            columns={2}
+            stats={[
+              { label: 'Estimasi MRR', value: `Rp ${Number(data.mrr).toLocaleString('id-ID')}`, icon: 'payments' },
+              { label: 'Langganan Aktif', value: String(data.activeSubscriptions), icon: 'verified' },
+            ]}
+          />
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <Card>
+              <CardTitle>Tenant per paket</CardTitle>
+              <ul className="mt-3 space-y-2.5">
+                {data.tenantsPerPlan.map((r) => {
+                  const max = Math.max(1, ...data.tenantsPerPlan.map((x) => x.count))
+                  return (
+                    <li key={r.planCode ?? 'none'}>
+                      <div className="flex items-baseline justify-between gap-2 text-sm">
+                        <span className="font-medium text-slate-700">{r.planCode ?? '(tanpa paket)'}</span>
+                        <strong className="tabular-nums text-slate-900">{r.count}</strong>
+                      </div>
+                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={`${r.planCode ?? 'tanpa paket'}: ${r.count} tenant`}>
+                        <div className="h-full rounded-full bg-slate-900" style={{ width: `${Math.round((r.count / max) * 100)}%` }} />
+                      </div>
+                    </li>
+                  )
+                })}
               </ul>
             </Card>
+            <Card>
+              <CardTitle>Tenant baru per bulan</CardTitle>
+              {data.newTenantsByMonth.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-400">Belum ada data.</p>
+              ) : (
+                <ul className="mt-3 space-y-2.5">
+                  {data.newTenantsByMonth.map((r) => {
+                    const max = Math.max(1, ...data.newTenantsByMonth.map((x) => x.count))
+                    return (
+                      <li key={r.month}>
+                        <div className="flex items-baseline justify-between gap-2 text-sm">
+                          <span className="font-mono text-xs text-slate-500">{r.month}</span>
+                          <strong className="tabular-nums text-slate-900">{r.count}</strong>
+                        </div>
+                        <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={`${r.month}: ${r.count} tenant baru`}>
+                          <div className="h-full rounded-full bg-slate-900" style={{ width: `${Math.round((r.count / max) * 100)}%` }} />
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </Card>
           </div>
-          <Card>
-            <h2 className="text-[15px] font-semibold text-slate-900">Tenant baru per bulan</h2>
-            <ul className="mt-2 space-y-1 text-sm text-slate-600">
-              {data.newTenantsByMonth.map((r) => (
-                <li key={r.month} className="flex max-w-xs justify-between">
-                  <span className="font-mono text-xs">{r.month}</span>
-                  <strong className="tabular">{r.count}</strong>
-                </li>
-              ))}
-            </ul>
-          </Card>
         </>
       ) : null}
     </section>

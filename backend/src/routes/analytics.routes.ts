@@ -107,7 +107,7 @@ analyticsRouter.get(
     } catch {}
     if (!isFeatureOn(flags, FEATURES.ANALYTICS_FULL)) {
       const { AppError: AE } = await import("../lib/errors");
-      throw AE.forbidden("Laporan penjualan lengkap tidak termasuk paket kafe Anda (analyticsFull). Hubungi tim sales Ordria untuk upgrade.");
+      throw AE.forbidden("Laporan penjualan lengkap tidak termasuk paket kafe Anda (analyticsFull). Hubungi tim sales Oxcribe untuk upgrade.");
     }
     const salesTypeOn = isFeatureOn(flags, FEATURES.SALES_TYPE);
 

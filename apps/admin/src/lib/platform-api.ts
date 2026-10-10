@@ -97,6 +97,26 @@ export type AuditRow = {
   business: { id: number; name: string; slug: string | null } | null
 }
 
+export type AdminRow = {
+  id: number
+  name: string
+  email: string
+  role: 'superadmin' | 'support'
+  active: boolean
+  createdAt: string
+}
+
+export type TenantUserRow = {
+  id: number
+  name: string
+  email: string
+  role: string
+  active: boolean
+  businessId: number
+  createdAt: string
+  business: { id: number; name: string; slug: string | null }
+}
+
 function storedToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
 }
@@ -239,6 +259,21 @@ export const platformApi = {
     }),
 
   getAnalytics: () => request<Record<string, unknown>>('/api/platform/analytics/overview'),
+  getAdmins: (params?: { role?: string; q?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.role) qs.set('role', params.role)
+    if (params?.q) qs.set('q', params.q)
+    const s = qs.toString()
+    return request<{ admins: AdminRow[] }>(`/api/platform/admins${s ? `?${s}` : ''}`)
+  },
+  getUsers: (params?: { role?: string; businessId?: number; q?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.role) qs.set('role', params.role)
+    if (params?.businessId) qs.set('businessId', String(params.businessId))
+    if (params?.q) qs.set('q', params.q)
+    const s = qs.toString()
+    return request<{ users: TenantUserRow[] }>(`/api/platform/users${s ? `?${s}` : ''}`)
+  },
   getAuditLogs: (params?: { businessId?: number; action?: string }) => {
     const qs = new URLSearchParams()
     if (params?.businessId) qs.set('businessId', String(params.businessId))

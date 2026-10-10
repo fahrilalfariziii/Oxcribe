@@ -1,4 +1,4 @@
-# Ordria Frontend
+# Oxcribe Frontend
 
 Web App Coffee Shop Management — tiga area: **Self-Order pelanggan (mobile)**,
 **Frontoffice kasir/barista (desktop)**, **BackOffice owner (desktop)**.
@@ -18,7 +18,9 @@ Email + password, auto-detect role, redirect role-based. Refresh tidak menendang
 | Kasir   | `/frontoffice/orders`               |
 | Barista | `/frontoffice/orders`               |
 
-QR token meja contoh: `table-01` s/d `table-05` aktif, `table-06` nonaktif.
+QR token meja contoh: `table-01` s/d `table-05` aktif, `table-06` nonaktif — **saat seed**.
+Token QR itu dinamis (owner bisa regenerate); bila 404 "QR tidak valid", ambil token aktif
+dari BackOffice → Meja atau `GET /api/tables` (login staff).
 Akses Self-Order: `http://localhost:5173/order/table-01`
 (kredensial dev = seed backend; tidak dipajang di UI).
 
@@ -56,12 +58,12 @@ npm run build
 | Path                          | Role                    | Keterangan                              |
 | ----------------------------- | ----------------------- | ---------------------------------------- |
 | `/`                           | publik                  | Redirect role-based (login/dashboard)    |
-| `/login`                      | publik                  | Email+password global Ordria, tanpa dropdown role |
+| `/login`                      | publik                  | Email+password global Oxcribe, tanpa dropdown role |
 | `/lupa-password`              | publik                  | Minta link reset password owner via email        |
 | `/reset-password?token=`      | publik                  | Buat password baru dari link email (1 jam, sekali pakai) |
 | `/order/:token`               | publik (pelanggan)      | Menu → Cart → Payment → Status → **Riwayat** |
 | `/frontoffice/orders`         | kasir, barista, owner   | Live Orders: suara ±3,5 dtk + toast + title flash; Tandai Lunas khusus cash; tombol Proses hanya bila lunas; Batalkan order belum lunas; gagal/expired auto-batal masuk riwayat |
-| `/frontoffice/manual`         | kasir, barista, owner   | Manual record-only (pending, tendered/kembalian, tanpa Midtrans) |
+| `/frontoffice/manual`         | kasir, barista, owner   | Manual record-only (pending, tendered/kembalian, tanpa DOKU) |
 | `/frontoffice/catalog`        | kasir, barista, owner   | Toggle Out of Stock (popup konfirmasi) + peringatan stok bahan |
 | `/frontoffice/inventory`      | kasir, barista, owner   | Tab Penerimaan (supplier/nota/harga/batch/expired) & Penyesuaian (reason wajib) |
 | `/frontoffice/settings`       | kasir, barista, owner   | Perangkat (BT/USB real, LAN simulasi), Modal Kas (expected/closing/selisih), Akun & Sesi |
@@ -77,7 +79,7 @@ npm run build
 | `/backoffice/settings/profile`  | owner                 | Profil (nama/email editable) + ganti password (verifikasi server) |
 | `/backoffice/settings/business` | owner                 | Tab Profil (identitas + logo) & Tema (preset + custom + preview HP) |
 | `/backoffice/settings/tax`      | owner                 | Pajak PB1/PBJT/PPN + bearer + service    |
-| `/backoffice/settings/payment`  | owner                 | Metode aktif (non-cash selalu Midtrans) + channel/bank VA + Midtrans global/custom |
+| `/backoffice/settings/payment`  | owner                 | Metode aktif (non-cash selalu DOKU) + channel/bank VA + konfigurasi DOKU |
 
 ## Aturan bisnis di frontend (sinkron dengan backend)
 
@@ -85,7 +87,7 @@ npm run build
   `total = subtotal+service + (taxBearer==='cafe' ? 0 : tax)` — sama dengan `backend/src/lib/order-calc.ts`.
 - Katalog tampil harga penuh `Rp 30.000` (`formatRupiah`), bukan `Rp 30k`.
 - Metode pembayaran Self-Order difilter dari `business.enabledPaymentMethods`
-  (Tunai, QRIS, Transfer Bank BCA/Mandiri/BNI/BRI) + berubah live via socket `business:updated`.
+  (Tunai, QRIS, Transfer Bank BCA/Mandiri/BNI/BRI) + berubah live via SSE `business:updated`.
 - `PaymentMethod` valid: `cash|qris|bank_transfer` (sinkron dengan backend; e-wallet dihapus).
 - Tema self-order (`BusinessTheme` + `normalizeTheme`): primer/aksen/latar/header/sapaan/font/radius;
   tanpa tema = tampilan default. Berlaku di Menu, Cart, ItemSheet, Payment, Status, Riwayat, BottomNav.
@@ -146,7 +148,7 @@ apps/web-app/
         │       ├── ManualOrderPage.tsx
         │       └── PosSettingsPage.tsx
         └── owner/                  # analytics & manajemen
-            ├── OwnerLayout.tsx     # refresh terpusat + socket semua area owner
+            ├── OwnerLayout.tsx     # refresh terpusat + SSE semua area owner
             ├── components/
             │   └── OwnerSidebar.tsx    # Dashboard, Sales, Menu, Tables, Staff, Settings
             └── pages/

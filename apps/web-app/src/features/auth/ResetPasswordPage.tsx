@@ -33,7 +33,7 @@ export function ResetPasswordPage() {
   return (
     <div className="flex min-h-full items-center justify-center bg-cream px-4">
       <div className="w-full max-w-sm rounded-[16px] bg-white p-8 ring-1 ring-[#e4e2dd] shadow-2xs">
-        <p className="font-display text-2xl font-semibold">Ordria</p>
+        <p className="font-display text-2xl font-semibold">Oxcribe</p>
         <p className="mb-6 text-sm text-muted">Buat password baru untuk akun owner.</p>
 
         {!token ? (

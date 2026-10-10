@@ -19,6 +19,11 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     });
   }
 
+  // Body JSON tak valid (express.json SyntaxError) — 400 jelas, bukan 500 generik.
+  if (err instanceof SyntaxError && (err as { status?: number }).status === 400 && "body" in err) {
+    return res.status(400).json({ error: "Body JSON tidak valid" });
+  }
+
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2002") {
       return res.status(409).json({

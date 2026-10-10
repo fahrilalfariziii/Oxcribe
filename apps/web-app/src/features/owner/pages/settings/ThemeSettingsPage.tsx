@@ -139,7 +139,7 @@ export function ThemeSettingsPage({ embedded = false }: { embedded?: boolean }) 
           )}
 
           {!presetOn && !customOn && (
-            <p className="text-sm text-stone">Fitur tema tidak termasuk paket kafe Anda. Hubungi tim sales Ordria untuk upgrade.</p>
+            <p className="text-sm text-stone">Fitur tema tidak termasuk paket kafe Anda. Hubungi tim sales Oxcribe untuk upgrade.</p>
           )}
 
           {/* Warna + header + font (kustom penuh, butuh themeCustom) */}

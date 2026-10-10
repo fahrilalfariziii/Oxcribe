@@ -26,6 +26,13 @@ function readFlags(json: string): Record<string, boolean> {
   }
 }
 
+const PLAN_TOGGLE_GROUPS: { title: string; keys: string[] }[] = [
+  { title: 'Akses Modul', keys: ['selfOrder', 'tableManagement', 'inventory'] },
+  { title: 'Analitik & Laporan', keys: ['analyticsFull', 'salesType', 'performanceItem', 'exportCsv'] },
+  { title: 'Tema Self-Order', keys: ['themePreset', 'themeCustom'] },
+  { title: 'Pajak & Biaya', keys: ['serviceCharge', 'taxFees'] },
+]
+
 export function PlansPage() {
   const { admin } = usePlatform()
   // Keputusan: superadmin + support boleh toggle fitur paket.
@@ -127,21 +134,13 @@ export function PlansPage() {
                 <span className="font-mono">{JSON.stringify(p.limits)}</span>
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${p.featureFlags?.serviceCharge ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-slate-100 text-slate-500 ring-1 ring-slate-600/10'}`}>
-                  Service Charge: {p.featureFlags?.serviceCharge ? 'ON' : 'OFF'}
-                </span>
-                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${p.featureFlags?.taxFees ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-slate-100 text-slate-500 ring-1 ring-slate-600/10'}`}>
-                  Pajak: {p.featureFlags?.taxFees ? 'ON' : 'OFF'}
-                </span>
+                <Badge status={`Service Charge: ${p.featureFlags?.serviceCharge ? 'ON' : 'OFF'}`} tone={p.featureFlags?.serviceCharge ? 'green' : 'gray'} />
+                <Badge status={`Pajak: ${p.featureFlags?.taxFees ? 'ON' : 'OFF'}`} tone={p.featureFlags?.taxFees ? 'green' : 'gray'} />
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {FEATURE_TOGGLES.filter((f) => f.key !== 'serviceCharge' && f.key !== 'taxFees').map((f) => (
-                  <span
-                    key={f.key}
-                    title={f.hint}
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold ${p.featureFlags?.[f.key] ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-slate-100 text-slate-400 ring-1 ring-slate-600/10'}`}
-                  >
-                    {f.key}: {p.featureFlags?.[f.key] ? 'ON' : 'OFF'}
+                  <span key={f.key} title={f.hint}>
+                    <Badge status={`${f.key}: ${p.featureFlags?.[f.key] ? 'ON' : 'OFF'}`} tone={p.featureFlags?.[f.key] ? 'green' : 'gray'} />
                   </span>
                 ))}
               </div>
@@ -180,33 +179,38 @@ export function PlansPage() {
               <Textarea value={draft.limits} onChange={(e) => setDraft({ ...draft, limits: e.target.value })} rows={8} spellCheck={false} className="font-mono text-xs" />
             </Field>
           </div>
-          <div className="mt-3 space-y-2 rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
+          <div className="mt-3 space-y-3 rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
             <p className="text-sm font-semibold text-slate-700">Toggle fitur (kecuali offlineSync)</p>
             <p className="text-xs text-slate-500">ON/OFF langsung memengaruhi gating semua tenant paket ini. Perubahan tercatat di audit log.</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {FEATURE_TOGGLES.map((f) => {
-                const flags = readFlags(draft.featureFlags)
-                const on = flags[f.key] === true
-                return (
-                  <label key={f.key} className="flex cursor-pointer items-start gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={on}
-                      onChange={(e) => {
-                        const next = { ...readFlags(draft.featureFlags), [f.key]: e.target.checked }
-                        setDraft({ ...draft, featureFlags: JSON.stringify(next, null, 2) })
-                      }}
-                    />
-                    <span>
-                      <strong className="font-mono text-xs">{f.key}</strong>
-                      <span className="block text-xs font-medium">{f.label}</span>
-                      <span className="block text-[11px] text-slate-500">{f.hint}</span>
-                    </span>
-                  </label>
-                )
-              })}
-            </div>
+            {PLAN_TOGGLE_GROUPS.map((g) => (
+              <div key={g.title}>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">{g.title}</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {FEATURE_TOGGLES.filter((f) => g.keys.includes(f.key)).map((f) => {
+                    const flags = readFlags(draft.featureFlags)
+                    const on = flags[f.key] === true
+                    return (
+                      <label key={f.key} className="flex cursor-pointer items-start gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={on}
+                          onChange={(e) => {
+                            const next = { ...readFlags(draft.featureFlags), [f.key]: e.target.checked }
+                            setDraft({ ...draft, featureFlags: JSON.stringify(next, null, 2) })
+                          }}
+                        />
+                        <span>
+                          <strong className="font-mono text-xs">{f.key}</strong>
+                          <span className="block text-xs font-medium">{f.label}</span>
+                          <span className="block text-[11px] text-slate-500">{f.hint}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
           <details className="mt-3">
             <summary className="cursor-pointer text-xs font-medium text-slate-500">Catatan JSON</summary>

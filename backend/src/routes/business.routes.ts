@@ -153,7 +153,7 @@ businessRouter.put(
       const canTheme = isFeatureOn(flags, FEATURES.THEME_PRESET) || isFeatureOn(flags, FEATURES.THEME_CUSTOM);
       if (!canTheme) {
         throw AppError.forbidden(
-          "Fitur tema tidak termasuk paket kafe Anda. Hubungi tim sales Ordria untuk upgrade."
+          "Fitur tema tidak termasuk paket kafe Anda. Hubungi tim sales Oxcribe untuk upgrade."
         );
       }
     }
@@ -162,7 +162,7 @@ businessRouter.put(
       const { flags } = await getBusinessFeatures(req.auth!.businessId);
       if (!isFeatureOn(flags, FEATURES.TAX_FEES)) {
         throw AppError.forbidden(
-          "Fitur Pajak sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
+          "Fitur Pajak sedang nonaktif untuk kafe Anda. Hubungi tim admin Oxcribe untuk mengaktifkan."
         );
       }
     }
@@ -170,7 +170,7 @@ businessRouter.put(
       const { flags } = await getBusinessFeatures(req.auth!.businessId);
       if (!isFeatureOn(flags, FEATURES.SERVICE_CHARGE)) {
         throw AppError.forbidden(
-          "Fitur Service Charge sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
+          "Fitur Service Charge sedang nonaktif untuk kafe Anda. Hubungi tim admin Oxcribe untuk mengaktifkan."
         );
       }
     }
@@ -184,7 +184,7 @@ businessRouter.put(
       });
       if (!isFeatureOn(flags, FEATURES.TAX_FEES) && !biz?.platformFeeEnabled) {
         throw AppError.forbidden(
-          "Fitur Pajak & Biaya sedang nonaktif untuk kafe Anda. Hubungi tim admin Ordria untuk mengaktifkan."
+          "Fitur Pajak & Biaya sedang nonaktif untuk kafe Anda. Hubungi tim admin Oxcribe untuk mengaktifkan."
         );
       }
     }

@@ -116,7 +116,7 @@ export const FALLBACK_HOME: HomeContent = {
   badge: 'SaaS POS Kafe & Jasa Pembuatan Website',
   title: 'Dua Solusi Digital untuk Bisnis Anda.',
   subtitle:
-    'Ordria menghadirkan sistem kasir self-order untuk coffee shop modern dan jasa pembuatan website profesional — pilih yang sesuai kebutuhan Anda.',
+    'Oxcribe menghadirkan sistem kasir self-order untuk coffee shop modern dan jasa pembuatan website profesional — pilih yang sesuai kebutuhan Anda.',
   products: [
     {
       icon: 'point_of_sale',

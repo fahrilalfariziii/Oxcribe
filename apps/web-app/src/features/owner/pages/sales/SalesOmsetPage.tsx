@@ -185,7 +185,7 @@ export function SalesOmsetPage() {
               <span className="material-symbols-outlined text-stone">show_chart</span>
             </div>
             {!fullOn ? (
-              <p className="text-sm text-stone">Grafik lengkap tidak termasuk paket kafe Anda — ringkasan angka di atas tetap tersedia. Hubungi tim sales Ordria untuk upgrade.</p>
+              <p className="text-sm text-stone">Grafik lengkap tidak termasuk paket kafe Anda — ringkasan angka di atas tetap tersedia. Hubungi tim sales Oxcribe untuk upgrade.</p>
             ) : hasChartData ? (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">

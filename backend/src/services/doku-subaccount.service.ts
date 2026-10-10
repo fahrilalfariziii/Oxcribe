@@ -162,6 +162,32 @@ export async function resolveValidatedTenantRoute(businessId: number): Promise<D
   return route;
 }
 
+export type DokuSubAccountEntry = {
+  type?: string;
+  accountNumber?: string;
+  accountNo?: string | number;
+};
+
+/** Pilih nomor akun IDR (DOKU_MERCHANT_IDR) sebagai sumber pencairan.
+ *  Jangan pakai accounts[0] mentah — urutan DOKU menaruh POINT paling
+ *  depan dan transfer dari POINT selalu 403 insufficient balance. */
+export function pickIdrAccountNumber(accounts: DokuSubAccountEntry[] | null | undefined): string | undefined {
+  const list = Array.isArray(accounts) ? accounts : [];
+  const idr = list.find((a) => a?.type === "DOKU_MERCHANT_IDR");
+  const num = idr?.accountNumber ?? (idr?.accountNo !== undefined ? String(idr.accountNo) : undefined);
+  if (num) return num;
+  const first = list[0];
+  return first?.accountNumber ?? (first?.accountNo !== undefined ? String(first.accountNo) : undefined);
+}
+
+/** Hasil transfer-inquiry DOKU (subset yang dipakai backend). */
+export type DokuTransferInquiry = {
+  referenceNo?: string;
+  beneficiaryAccountName?: string;
+  beneficiaryAccountNumber?: string;
+  beneficiaryBankCode?: string;
+};
+
 export type DokuSplitRuleItem = {
   type: "PERCENTAGE" | "FLAT";
   value: number;
@@ -169,7 +195,7 @@ export type DokuSplitRuleItem = {
   accountNumber: string | number;
 };
 
-/** Buat split rule otomatis (mis. fee platform % ke sub-akun Ordria). */
+/** Buat split rule otomatis (mis. fee platform % ke sub-akun Oxcribe). */
 export async function createDokuSplitRule(rules: DokuSplitRuleItem[]): Promise<string> {
   const data = await dokuSubPost<{ splitRuleId?: string }>("/sub-account/v2.0/split-rules", {
     transactionType: "PAYMENT",
@@ -206,13 +232,31 @@ export async function inquiryDokuTransfer(params: {
   });
 }
 
-/** Eksekusi transfer memakai referenceNo dari inquiry. */
+/** Eksekusi transfer memakai referenceNo dari inquiry.
+ *  DOKU mewajibkan detail transfer di-echo kembali (partnerReferenceNo,
+ *  fromAccount, beneficiary*, amount) — referenceNo saja DITOLAK
+ *  (4004302 Invalid Mandatory Field). Nama penerima pakai yang
+ *  dikembalikan inquiry (jangan karang sendiri agar tak MISMATCH). */
 export async function payDokuTransfer(params: {
+  partnerReferenceNo: string;
   referenceNo: string;
   type: "BANK_ACCOUNT" | "DOKU_SUB_ACCOUNT" | "DOKU_WALLET";
+  channel?: string;
+  fromAccount: string;
+  beneficiaryBankCode: string;
+  beneficiaryAccountNumber: string;
+  beneficiaryAccountName: string;
+  amount: number;
 }): Promise<Record<string, unknown>> {
   return dokuSubPost("/sub-account/v2.0/transfer-payment", {
+    partnerReferenceNo: params.partnerReferenceNo,
     referenceNo: params.referenceNo,
     type: params.type,
+    channel: params.channel ?? "BI_FAST",
+    fromAccount: params.fromAccount,
+    beneficiaryBankCode: params.beneficiaryBankCode,
+    beneficiaryAccountNumber: params.beneficiaryAccountNumber,
+    beneficiaryAccountName: params.beneficiaryAccountName,
+    amount: { value: `${Math.round(params.amount)}.00`, currency: "IDR" },
   });
 }

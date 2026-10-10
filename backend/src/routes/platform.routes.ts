@@ -9,6 +9,7 @@ import { AppError } from "../lib/errors";
 import { asyncHandler } from "../middleware/error-handler";
 import { requirePlatformAuth, requirePlatformRole } from "../middleware/platform-auth";
 import { PLANS as STATIC_PLANS } from "../lib/plans";
+import type { DokuSubAccountEntry, DokuTransferInquiry } from "../services/doku-subaccount.service";
 
 export const platformRouter = Router();
 
@@ -549,7 +550,7 @@ platformRouter.post(
       const sub = await registerDokuSubAccount({
         referenceNo,
         name: override.name ?? business.name,
-        email: override.email ?? owner?.email ?? business.email ?? `tenant-${id}@ordria.local`,
+        email: override.email ?? owner?.email ?? business.email ?? `tenant-${id}@oxcribe.local`,
         phoneNo: override.phone ?? business.phone ?? undefined,
       });
       const updated = await prisma.business.update({
@@ -621,8 +622,11 @@ platformRouter.post(
     const business = await prisma.business.findUnique({ where: { id } });
     if (!business) throw AppError.notFound("Tenant tidak ditemukan");
     if (!business.dokuProfileId) throw AppError.badRequest("Tenant belum punya sub-account DOKU");
-    const accounts = (business.dokuSubAccounts ?? []) as { accountNumber?: string; accountNo?: string | number }[];
-    const fromAccount = data.fromAccount ?? accounts[0]?.accountNumber ?? (accounts[0]?.accountNo !== undefined ? String(accounts[0]?.accountNo) : undefined);
+    const { inquiryDokuTransfer, payDokuTransfer, pickIdrAccountNumber } = await import("../services/doku-subaccount.service");
+    const accounts = (business.dokuSubAccounts ?? []) as DokuSubAccountEntry[];
+    // Default sumber = akun IDR (bukan accounts[0] yang isinya POINT).
+    // Body fromAccount tetap menang bila dikirim eksplisit.
+    const fromAccount = data.fromAccount ?? pickIdrAccountNumber(accounts);
     if (!fromAccount) throw AppError.badRequest("Nomor sub-akun sumber tidak ditemukan (cek saldo dulu)");
     const payCfg = ((business.paymentSettings ?? {}) as Record<string, { bank?: string; accountNumber?: string } | undefined>).bank_transfer;
     const bankSlug = (payCfg?.bank ?? "").toLowerCase();
@@ -630,23 +634,33 @@ platformRouter.post(
     if (!beneficiaryAccountNumber) throw AppError.badRequest("Nomor rekening tujuan wajib (tab Rekening / body)");
     const beneficiaryBankCode = data.beneficiaryBankCode ?? BANK_CODES[bankSlug];
     if (!beneficiaryBankCode) throw AppError.badRequest("Kode bank tujuan tidak dikenal (kirim beneficiaryBankCode)");
-    const { inquiryDokuTransfer, payDokuTransfer } = await import("../services/doku-subaccount.service");
     // Kegagalan DOKU (mis. saldo kurang) diteruskan sebagai 400 dengan pesan asli,
     // bukan 500 generik — agar admin tahu persis penyebabnya.
-    let inquiry: { referenceNo?: string };
+    let inquiry: DokuTransferInquiry;
     let paid: unknown;
+    const partnerReferenceNo = `TRF-${id}-${Date.now().toString(36)}`;
     try {
       inquiry = (await inquiryDokuTransfer({
-        referenceNo: `TRF-${id}-${Date.now().toString(36)}`,
+        referenceNo: partnerReferenceNo,
         fromAccount,
         type: "BANK_ACCOUNT",
         amount: data.amount,
         beneficiaryBankCode,
         beneficiaryAccountNumber,
         remark: data.remark,
-      })) as { referenceNo?: string };
+      })) as DokuTransferInquiry;
       if (!inquiry.referenceNo) throw AppError.badRequest("Inquiry transfer tanpa referenceNo");
-      paid = await payDokuTransfer({ referenceNo: inquiry.referenceNo, type: "BANK_ACCOUNT" });
+      if (!inquiry.beneficiaryAccountName) throw AppError.badRequest("Inquiry tanpa nama penerima (beneficiaryAccountName)");
+      paid = await payDokuTransfer({
+        partnerReferenceNo,
+        referenceNo: inquiry.referenceNo,
+        type: "BANK_ACCOUNT",
+        fromAccount,
+        beneficiaryBankCode,
+        beneficiaryAccountNumber,
+        beneficiaryAccountName: inquiry.beneficiaryAccountName,
+        amount: data.amount,
+      });
     } catch (e) {
       if (e instanceof AppError) throw e;
       throw AppError.badRequest(`Transfer DOKU gagal: ${(e as Error).message.slice(0, 300)}`);
@@ -692,17 +706,18 @@ platformRouter.post(
       data.beneficiaryBankCode ?? business.dokuSettlementBankCode ?? BANK_CODES[(payCfg?.bank ?? "").toLowerCase()];
     if (!beneficiaryBankCode) throw AppError.badRequest("Kode bank tujuan tidak dikenal (kirim beneficiaryBankCode)");
     const { inquiryDokuTransfer, payDokuTransfer } = await import("../services/doku-subaccount.service");
-    let inquiry: Record<string, unknown>;
+    let inquiry: DokuTransferInquiry;
+    const partnerReferenceNo = `MAIN-${id}-${Date.now().toString(36)}`;
     try {
       inquiry = (await inquiryDokuTransfer({
-        referenceNo: `MAIN-${id}-${Date.now().toString(36)}`,
+        referenceNo: partnerReferenceNo,
         fromAccount,
         type: "BANK_ACCOUNT",
         amount: data.amount,
         beneficiaryBankCode,
         beneficiaryAccountNumber,
         remark: data.remark ?? data.tenantNote.slice(0, 140),
-      })) as Record<string, unknown>;
+      })) as DokuTransferInquiry;
     } catch (e) {
       if (e instanceof AppError) throw e;
       throw AppError.badRequest(`Inquiry payout utama gagal: ${(e as Error).message.slice(0, 300)}`);
@@ -713,7 +728,19 @@ platformRouter.post(
     let paid: unknown;
     try {
       if (typeof inquiry.referenceNo !== "string") throw AppError.badRequest("Inquiry tanpa referenceNo");
-      paid = await payDokuTransfer({ referenceNo: inquiry.referenceNo, type: "BANK_ACCOUNT" });
+      if (typeof inquiry.beneficiaryAccountName !== "string" || !inquiry.beneficiaryAccountName) {
+        throw AppError.badRequest("Inquiry tanpa nama penerima (beneficiaryAccountName)");
+      }
+      paid = await payDokuTransfer({
+        partnerReferenceNo,
+        referenceNo: inquiry.referenceNo,
+        type: "BANK_ACCOUNT",
+        fromAccount,
+        beneficiaryBankCode,
+        beneficiaryAccountNumber,
+        beneficiaryAccountName: inquiry.beneficiaryAccountName,
+        amount: data.amount,
+      });
     } catch (e) {
       if (e instanceof AppError) throw e;
       throw AppError.badRequest(`Eksekusi payout utama gagal: ${(e as Error).message.slice(0, 300)}`);
@@ -772,10 +799,11 @@ platformRouter.patch(
     const business = await prisma.business.findUnique({ where: { id } });
     if (!business) throw AppError.notFound("Tenant tidak ditemukan");
     if (!business.dokuProfileId) throw AppError.badRequest("Tenant belum punya sub-account DOKU");
-    const accounts = (business.dokuSubAccounts ?? []) as { accountNumber?: string; accountNo?: string | number }[];
-    const fromAccount = accounts[0]?.accountNumber ?? (accounts[0]?.accountNo !== undefined ? String(accounts[0]?.accountNo) : undefined);
+    const { inquiryDokuTransfer, pickIdrAccountNumber } = await import("../services/doku-subaccount.service");
+    const accounts = (business.dokuSubAccounts ?? []) as DokuSubAccountEntry[];
+    // Sumber inquiry = akun IDR (bukan POINT) agar tak selalu 403 saat saldo POINT 0.
+    const fromAccount = pickIdrAccountNumber(accounts);
     if (!fromAccount) throw AppError.badRequest("Nomor sub-akun sumber tidak ditemukan (cek saldo dulu)");
-    const { inquiryDokuTransfer } = await import("../services/doku-subaccount.service");
     // amount kecil untuk validasi nama penerima. Bila saldo sub-account belum cukup
     // (DOKU 4034202/4034215), data tetap disimpan sebagai UNVERIFIED agar bisa
     // diverifikasi ulang setelah top-up — tanpa 500.
@@ -1155,5 +1183,72 @@ platformRouter.patch(
     const updated = await prisma.lead.update({ where: { id }, data: { status } });
     await recordAudit(req.platformAdmin!.adminId, null, "lead_status_changed", { leadId: id, status: lead.status }, { leadId: id, status });
     res.json(updated);
+  })
+);
+
+// ================= Users (internal + merchant, read-only) =================
+// Keamanan: select kolom eksplisit — passwordHash TIDAK PERNAH keluar.
+// Query divalidasi zod (role enum, businessId int, q max 100) agar tak bisa
+// dipakai probing. Kedua endpoint di bawah garis requirePlatformAuth
+// (token tenant ditolak) dan read-only (tanpa mutasi = tanpa surface tulis baru).
+
+const adminQuerySchema = z.object({
+  role: z.enum(["superadmin", "support"]).optional(),
+  q: z.string().max(100).optional(),
+});
+
+// GET /api/platform/admins — daftar admin internal (superadmin/support)
+platformRouter.get(
+  "/admins",
+  asyncHandler(async (req, res) => {
+    const { role, q } = adminQuerySchema.parse(req.query);
+    const admins = await prisma.platformAdmin.findMany({
+      where: {
+        ...(role ? { role } : {}),
+        ...(q
+          ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }] }
+          : {}),
+      },
+      select: { id: true, name: true, email: true, role: true, active: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+      take: 200,
+    });
+    res.json({ admins });
+  })
+);
+
+const tenantUserQuerySchema = z.object({
+  role: z.enum(["owner", "kasir", "barista"]).optional(),
+  businessId: z.coerce.number().int().optional(),
+  q: z.string().max(100).optional(),
+});
+
+// GET /api/platform/users — daftar staff merchant semua tenant (owner/kasir/barista)
+platformRouter.get(
+  "/users",
+  asyncHandler(async (req, res) => {
+    const { role, businessId, q } = tenantUserQuerySchema.parse(req.query);
+    const users = await prisma.user.findMany({
+      where: {
+        ...(role ? { role } : {}),
+        ...(businessId ? { businessId } : {}),
+        ...(q
+          ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }] }
+          : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        active: true,
+        businessId: true,
+        createdAt: true,
+        business: { select: { id: true, name: true, slug: true } },
+      },
+      orderBy: [{ businessId: "asc" }, { createdAt: "asc" }],
+      take: 200,
+    });
+    res.json({ users });
   })
 );

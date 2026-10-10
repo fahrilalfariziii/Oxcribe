@@ -154,7 +154,7 @@ export function DashboardPage() {
         ) : (
         <section className="col-span-12 rounded-[12px] bg-cream p-6 ring-1 ring-[#e4e2dd] xl:col-span-8">
           <h2 className="text-lg font-semibold">Grafik analitik penuh</h2>
-          <p className="mt-1 text-sm text-stone">Paket kafe Anda hanya mencakup ringkasan angka di atas. Hubungi tim sales Ordria untuk upgrade ke paket dengan analitik lengkap.</p>
+          <p className="mt-1 text-sm text-stone">Paket kafe Anda hanya mencakup ringkasan angka di atas. Hubungi tim sales Oxcribe untuk upgrade ke paket dengan analitik lengkap.</p>
         </section>
         )}
         <div className="col-span-12 flex flex-col gap-6 xl:col-span-4">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { usePlatform } from '../auth/PlatformAuth'
 import { platformApi, type InvoiceRow } from '../lib/platform-api'
 import { Alert, Badge, Button, Card, Field, Input, Modal, PageHeader, Select, Skeleton, Table, Td } from '../components/ui'
+import { StatCards } from '../components/StatCards'
 
 export function InvoicesPage() {
   const { admin } = usePlatform()
@@ -92,6 +93,25 @@ export function InvoicesPage() {
       {error && <Alert tone="error">{error}</Alert>}
       {notice && <Alert tone="success">{notice}</Alert>}
 
+      {!loading && invoices.length > 0 && (
+        <StatCards
+          columns={3}
+          stats={[
+            { label: 'Total Invoice', value: invoices.length.toLocaleString('id-ID'), icon: 'receipt_long' },
+            {
+              label: 'Belum Lunas (Rp)',
+              value: `Rp ${invoices.filter((i) => i.status === 'unpaid' || i.status === 'overdue').reduce((s, i) => s + Number(i.amount || 0), 0).toLocaleString('id-ID')}`,
+              icon: 'schedule',
+            },
+            {
+              label: 'Sudah Lunas',
+              value: invoices.filter((i) => i.status === 'paid').length.toLocaleString('id-ID'),
+              icon: 'check_circle',
+            },
+          ]}
+        />
+      )}
+
       <Card>
         <form
           onSubmit={(e) => {
@@ -181,8 +201,8 @@ export function InvoicesPage() {
           <div className="mt-4 flex gap-2">
             <Button
               size="sm"
+              variant="success"
               onClick={() => void pay()}
-              className="bg-emerald-700 hover:bg-emerald-600"
             >
               Konfirmasi lunas
             </Button>

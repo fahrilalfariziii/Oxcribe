@@ -130,8 +130,26 @@ export function ContentPage() {
           <p className="py-4 text-center text-sm text-slate-400">Belum ada section (jalankan seed backend).</p>
         </Card>
       ) : (
-        sections.map((s) => (
-          <Card key={s.sectionKey}>
+        <>
+          <Card className="p-4">
+            <nav aria-label="Navigasi section" className="flex flex-wrap gap-1.5">
+              {sections.map((s) => (
+                <a
+                  key={s.sectionKey}
+                  href={`#section-${s.sectionKey}`}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-200 hover:text-slate-900"
+                >
+                  {SECTION_META[s.sectionKey]?.title ?? s.sectionKey}
+                  {!s.isPublished && (
+                    <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700">draft</span>
+                  )}
+                </a>
+              ))}
+            </nav>
+          </Card>
+          {sections.map((s) => (
+            <div key={s.sectionKey} id={`section-${s.sectionKey}`} className="scroll-mt-4">
+            <Card>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <CardTitle>{SECTION_META[s.sectionKey]?.title ?? s.sectionKey}</CardTitle>
@@ -152,7 +170,9 @@ export function ContentPage() {
               <SectionEditor sectionKey={s.sectionKey} form={forms[s.sectionKey] ?? {}} set={set} setItem={setItem} addItem={addItem} removeItem={removeItem} />
             </div>
           </Card>
-        ))
+          </div>
+          ))}
+        </>
       )}
     </section>
   )

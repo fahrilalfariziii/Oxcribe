@@ -45,7 +45,7 @@ export async function getBusinessFeatures(businessId: number): Promise<ResolvedF
   });
   if (!business) throw AppError.notFound("Bisnis tidak ditemukan");
   if (business.isPlatformSuspended) {
-    throw AppError.forbidden("Akun kafe dinonaktifkan. Hubungi tim Ordria.");
+    throw AppError.forbidden("Akun kafe dinonaktifkan. Hubungi tim Oxcribe.");
   }
 
   let flags: Record<string, boolean> = {};
@@ -77,7 +77,7 @@ export async function getBusinessFeatures(businessId: number): Promise<ResolvedF
 
 function deny(flag: string) {
   return AppError.forbidden(
-    `Fitur ini tidak termasuk paket kafe Anda (${flag}). Hubungi tim sales Ordria untuk upgrade.`
+    `Fitur ini tidak termasuk paket kafe Anda (${flag}). Hubungi tim sales Oxcribe untuk upgrade.`
   );
 }
 

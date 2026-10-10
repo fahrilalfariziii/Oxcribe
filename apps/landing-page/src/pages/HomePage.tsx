@@ -4,7 +4,7 @@ import { Headbar } from '../components/Headbar'
 import { Footer } from '../components/Footer'
 import { FALLBACK_HOME, fetchHomeContent, type HomeContent } from '../lib/api'
 
-// Halaman depan: gerbang dua produk Ordria. Copy dari CMS (key "home"),
+// Halaman depan: gerbang dua produk Oxcribe. Copy dari CMS (key "home"),
 // fallback hardcode saat backend tak terjangkau.
 export function HomePage() {
   const [home, setHome] = useState<HomeContent>(FALLBACK_HOME)

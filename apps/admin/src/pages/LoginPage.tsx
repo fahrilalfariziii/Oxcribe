@@ -30,7 +30,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <form onSubmit={onSubmit} className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-        <p className="text-lg font-bold tracking-tight text-slate-900">Ordria</p>
+        <p className="text-lg font-bold tracking-tight text-slate-900">Oxcribe</p>
         <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Platform Admin</p>
         <p className="mb-6 mt-3 text-sm text-slate-500">Internal only — terpisah dari login kasir/owner tenant.</p>
         {error && (
@@ -40,7 +40,7 @@ export function LoginPage() {
         )}
         <div className="space-y-4">
           <Field label="Email">
-            <Input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@ordria.id" />
+            <Input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@oxcribe.id" />
           </Field>
           <Field label="Password">
             <Input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />

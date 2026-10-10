@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { platformApi, type AuditRow } from '../lib/platform-api'
-import { Alert, Button, Card, Input, PageHeader, Skeleton } from '../components/ui'
+import { Alert, Button, Card, Input, PageHeader, Skeleton, Table, Td } from '../components/ui'
+import { JsonBlock } from '../components/JsonBlock'
+import { formatDateId } from './tenant/types'
 
 export function AuditPage() {
   const [logs, setLogs] = useState<AuditRow[]>([])
@@ -68,28 +70,45 @@ export function AuditPage() {
           <p className="py-4 text-center text-sm text-slate-400">Belum ada log.</p>
         </Card>
       ) : (
-        <Card>
-          <ul className="divide-y divide-slate-100">
+        <>
+          <p className="text-xs text-slate-400 tabular-nums" aria-live="polite">
+            {logs.length} aktivitas · terbaru dulu
+          </p>
+          <Table head={['Aktivitas', 'Aktor', 'Tenant', 'Waktu', '']}>
             {logs.map((l) => (
-              <li key={l.id} className="py-3 first:pt-0 last:pb-0">
-                <button onClick={() => setExpanded(expanded === l.id ? null : l.id)} className="block w-full text-left">
-                  <p className="text-sm">
-                    <strong className="font-mono text-xs">{l.action}</strong>
-                    <span className="text-slate-400"> · {new Date(l.createdAt).toLocaleString('id-ID')}</span>
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {l.platformAdmin?.name ?? '?'} · tenant: {l.business?.name ?? '—'}
-                  </p>
-                </button>
+              <Fragment key={l.id}>
+                <tr className="border-t border-slate-100 hover:bg-slate-50">
+                  <Td>
+                    <span className="font-mono text-xs font-semibold text-slate-800">{l.action}</span>
+                  </Td>
+                  <Td className="text-xs text-slate-500">
+                    {l.platformAdmin?.name ?? '?'}
+                    <span className="block text-slate-400">{l.platformAdmin?.email ?? ''}</span>
+                  </Td>
+                  <Td className="text-xs text-slate-500">{l.business?.name ?? '—'}</Td>
+                  <Td className="whitespace-nowrap text-xs text-slate-500">{formatDateId(l.createdAt)}</Td>
+                  <Td className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(expanded === l.id ? null : l.id)}
+                      aria-expanded={expanded === l.id}
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                    >
+                      {expanded === l.id ? 'Tutup' : 'Detail'}
+                    </button>
+                  </Td>
+                </tr>
                 {expanded === l.id && (
-                  <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-                    {JSON.stringify({ before: l.before, after: l.after }, null, 2)}
-                  </pre>
+                  <tr className="border-t border-slate-100 bg-slate-50/60">
+                    <Td colSpan={5}>
+                      <JsonBlock label={`#${l.id} before → after`} data={{ before: l.before, after: l.after }} />
+                    </Td>
+                  </tr>
                 )}
-              </li>
+              </Fragment>
             ))}
-          </ul>
-        </Card>
+          </Table>
+        </>
       )}
     </section>
   )
