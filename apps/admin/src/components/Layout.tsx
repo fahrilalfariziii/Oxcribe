@@ -15,6 +15,7 @@ const GROUPS: { label: string; items: { to: string; label: string; icon: string 
     items: [
       { to: '/platform/plans', label: 'Paket', icon: 'package_2' },
       { to: '/platform/invoices', label: 'Invoice', icon: 'receipt_long' },
+      { to: '/platform/payouts', label: 'Pencairan Dana', icon: 'account_balance_wallet' },
     ],
   },
   {
@@ -35,6 +36,7 @@ const TITLES: { prefix: string; title: string }[] = [
   { prefix: '/platform/leads', title: 'Leads' },
   { prefix: '/platform/plans', title: 'Paket' },
   { prefix: '/platform/invoices', title: 'Invoice' },
+  { prefix: '/platform/payouts', title: 'Pencairan Dana' },
   { prefix: '/platform/content', title: 'Konten Landing' },
   { prefix: '/platform/analytics', title: 'Analitik' },
   { prefix: '/platform/audit', title: 'Audit Log' },

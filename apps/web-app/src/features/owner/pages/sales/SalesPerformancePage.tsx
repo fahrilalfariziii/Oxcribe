@@ -156,7 +156,7 @@ export function SalesPerformancePage() {
             ))}
           </select>
 
-          <div className="flex rounded-lg border border-[#c4c7c7] bg-sand/50 p-1">
+          <div className="flex rounded-lg border border-[#c4c7c7] bg-white/50 p-1">
             {(['daily', 'weekly', 'monthly'] as const).map((p) => (
               <button
                 key={p}
@@ -183,7 +183,7 @@ export function SalesPerformancePage() {
       </div>
 
       {/* Kategori bar performa: menu | kategori | varian */}
-      <div className="flex gap-2 rounded-lg border border-[#c4c7c7] bg-cream p-1.5">
+      <div className="flex gap-2 rounded-lg border border-[#c4c7c7] bg-white p-1.5">
         {(
           [
             { id: 'menu', label: 'Menu' },
@@ -205,7 +205,7 @@ export function SalesPerformancePage() {
 
       {activeTab === 'menu' && (
         <div className="space-y-6">
-          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-2xs">
+          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between border-b border-sand pb-3">
               <h2 className="font-semibold text-black">Grafik Menu Terlaris</h2>
               <span className="text-xs text-stone uppercase tracking-wider">{period} - {selectedYear}</span>
@@ -227,7 +227,7 @@ export function SalesPerformancePage() {
             )}
           </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-[12px] border border-[#c4c7c7] bg-cream p-5">
+          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between border-b border-sand pb-3">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-sage">local_fire_department</span>
@@ -257,7 +257,7 @@ export function SalesPerformancePage() {
               ))}
             </ul>
           </div>
-          <div className="rounded-[12px] border border-[#c4c7c7] bg-cream p-5">
+          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between border-b border-sand pb-3">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#ba1a1a]">trending_down</span>

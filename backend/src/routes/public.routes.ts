@@ -9,8 +9,6 @@ import { PLANS, getPlanByCode } from "../lib/plans";
 import { asyncHandler } from "../middleware/error-handler";
 import { createOrder } from "../services/order.service";
 import { createDokuChargeForMethod, dokuReferenceFromPayments, getDokuQrisStatus, getDokuVAStatus, normalizeDokuStatus, verifyDokuNotification } from "../services/doku.service";
-import type { DokuSubAccountRoute } from "../services/doku.service";
-import { resolveValidatedTenantRoute } from "../services/doku-subaccount.service";
 import { markOrderPaid, cancelOrder } from "../services/order.service";
 import { emitOrderPaymentUpdate, emitOrderStatusUpdate } from "../lib/realtime";
 import { handleStream } from "../lib/realtime";
@@ -32,16 +30,6 @@ const dokuNotificationLimiter = rateLimit({
 });
 
 export const publicRouter = Router();
-
-/** Routing sub-account tenant untuk charge — tervalidasi via balance-inquiry
- *  (anti silent-failure DOKU); gagal validasi = undefined = mengendap ke
- *  merchant utama. Dipakai checkout + recharge. */
-async function resolveTenantSubAccount(businessId: number): Promise<DokuSubAccountRoute | undefined> {
-  try {
-    return await resolveValidatedTenantRoute(businessId);
-  } catch {}
-  return undefined;
-}
 
 // GET /api/stream — realtime Server-Sent Events (pengganti Socket.io).
 // Staff:   /api/stream?token=JWT
@@ -287,22 +275,15 @@ publicRouter.post(
       items: data.items,
     });
 
-    // Metode non-cash SELALU via DOKU SNAP (global; nilai gateway lama diabaikan).
-    // Bila tenant sudah onboarding sub-account (aktif), charge di-routing ke
-    // sub-accountnya; bila belum, mengendap ke merchant utama (backward compatible).
+    // Metode non-cash SELALU via DOKU SNAP (langsung ke merchant/akun utama).
     if ((data.paymentMethod as string) !== "cash") {
       try {
-        const business = await prisma.business.findUnique({ where: { id: table.businessId } });
-        const subAccount = business?.dokuSubAccountStatus === "active" && business.dokuProfileId
-          ? { profileId: business.dokuProfileId, splitRuleId: business.dokuSplitRuleId ?? undefined }
-          : undefined;
         const charge = await createDokuChargeForMethod({
           method: data.paymentMethod as "qris" | "bank_transfer",
           orderNumber: order.orderNumber,
           grossAmount: Number(order.total),
           customerName: data.customerName,
           selectedBank: (data as { selectedBank?: string }).selectedBank,
-          subAccount,
         });
         if (charge) {
           await prisma.payment.updateMany({
@@ -310,7 +291,7 @@ publicRouter.post(
             data: {
               gateway: "doku",
               reference: charge.referenceNo ?? charge.partnerReferenceNo,
-              gatewayData: { ...charge, routedSubAccount: subAccount?.profileId ?? null } as unknown as object,
+              gatewayData: charge as unknown as object,
             },
           });
           const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true, statusLogs: true, table: true } });
@@ -442,7 +423,6 @@ publicRouter.post(
       grossAmount: Number(order.total),
       customerName: order.customerName ?? undefined,
       selectedBank,
-      subAccount: await resolveTenantSubAccount(order.businessId),
     });
     if (!charge) throw AppError.badRequest("DOKU charge gagal — periksa kredensial/B2B token di log server");
 

@@ -385,7 +385,7 @@ export function OrdersPage() {
         {filteredOrders.map((order) => (
           <article
             key={order.id}
-            className="flex flex-col justify-between rounded-[12px] border border-[#c4c7c7] bg-cream p-4 shadow-xs"
+            className="flex flex-col justify-between rounded-[12px] border border-[#c4c7c7] bg-[#F0F0F0] p-4 shadow-xs"
           >
             <div>
               <div className="flex items-start justify-between border-b border-sand pb-3">
@@ -396,7 +396,7 @@ export function OrdersPage() {
                   </p>
                   <p className="text-[11px] text-stone">{formatTime(order.createdAt)}</p>
                 </div>
-                <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${order.status === 'batal' ? 'bg-[#ba1a1a]/10 text-[#ba1a1a]' : 'bg-sand text-stone'}`}>
+                <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${order.status === 'batal' ? 'bg-[#ba1a1a]/10 text-[#ba1a1a]' : 'bg-black text-white'}`}>
                   {order.status === 'batal' ? `dibatalkan · ${order.paymentStatus}` : `${order.paymentMethod} · ${order.paymentStatus}`}
                 </span>
               </div>

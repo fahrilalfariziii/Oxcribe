@@ -7,6 +7,7 @@ import { TenantDetailPage } from './pages/TenantDetailPage'
 import { UsersPage } from './pages/UsersPage'
 import { PlansPage } from './pages/PlansPage'
 import { InvoicesPage } from './pages/InvoicesPage'
+import { PayoutsPage } from './pages/PayoutsPage'
 import { LeadsPage } from './pages/LeadsPage'
 import { ContentPage } from './pages/ContentPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="users" element={<UsersPage />} />
           <Route path="plans" element={<PlansPage />} />
           <Route path="invoices" element={<InvoicesPage />} />
+          <Route path="payouts" element={<PayoutsPage />} />
           <Route path="leads" element={<LeadsPage />} />
           <Route path="content" element={<ContentPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />

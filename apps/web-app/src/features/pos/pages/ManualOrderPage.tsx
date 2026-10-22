@@ -280,7 +280,7 @@ export function ManualOrderPage() {
             ))}
           </div>
 
-          <div className="relative min-w-[220px]">
+          <div className="relative min-w-[280px]">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[20px] text-stone">
               search
             </span>
@@ -300,13 +300,13 @@ export function ManualOrderPage() {
             <button
               key={p.id}
               onClick={() => handleSelectProduct(p)}
-              className="flex flex-col justify-between rounded-[12px] border border-[#c4c7c7] bg-cream p-3 text-left hover:border-black transition-all active:scale-[0.98]"
+              className="flex flex-col justify-between rounded-[12px] border border-[#f4f4f4] bg-[#ededed] p-3 shadow-sm text-left hover:border-black transition-all active:scale-[0.98]"
             >
               <div>
                 {p.imageUrl ? (
                   <img src={p.imageUrl} alt="" className="mb-2 h-28 w-full rounded-lg object-cover" />
                 ) : (
-                  <div className="mb-2 flex h-28 w-full items-center justify-center rounded-lg bg-sand font-display text-3xl text-stone">
+                  <div className="mb-2 flex h-28 w-full items-center justify-center rounded-lg bg-white font-display text-3xl text-stone">
                     {(p.name || '?').charAt(0).toUpperCase()}
                   </div>
                 )}
@@ -335,7 +335,7 @@ export function ManualOrderPage() {
             {cart.map((i) => (
               <div
                 key={i.cartId}
-                className="flex items-center justify-between rounded-[10px] border border-clay/50 bg-cream p-3 text-sm shadow-2xs"
+                className="flex items-center justify-between rounded-[10px] border border-clay/50 bg-[#ededed] p-3 text-sm shadow-2xs"
               >
                 <div className="flex-1 pr-2">
                   <p className="font-bold text-black leading-tight">{i.name}</p>

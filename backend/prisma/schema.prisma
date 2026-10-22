@@ -76,6 +76,7 @@ model Business {
   subscriptions  Subscription[]
   invoices       Invoice[]
   auditLogs      PlatformAuditLog[]
+  wallet         MerchantWallet?
 
   @@map("businesses")
 }
@@ -419,4 +420,79 @@ model PasswordResetToken {
   createdAt DateTime  @default(now()) @map("created_at")
 
   @@map("password_reset_tokens")
+}
+
+// ---- Virtual Ledger & Payout (Akun DOKU Individu) ----
+
+model MerchantWallet {
+  id                Int      @id @default(autoincrement())
+  businessId        Int      @unique @map("business_id")
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  availableBalance  Decimal  @default(0) @map("available_balance") @db.Decimal(14, 2)
+  pendingBalance    Decimal  @default(0) @map("pending_balance") @db.Decimal(14, 2)
+
+  // Konfigurasi Jadwal Otomatis (Auto-Payout)
+  autoPayoutEnabled Boolean  @default(false) @map("auto_payout_enabled")
+  payoutFrequency   String   @default("manual") @map("payout_frequency") // manual | daily | weekly | monthly
+  payoutDay         Int?     @map("payout_day") // misal 1 (Senin) atau 25 (tgl 25)
+  minimumPayout     Decimal  @default(50000) @map("minimum_payout") @db.Decimal(14, 2)
+  holdMinBalance    Decimal  @default(0) @map("hold_min_balance") @db.Decimal(14, 2)
+
+  // Rekening Bank Terdaftar & Terverifikasi DOKU
+  bankCode          String?  @map("bank_code")
+  bankAccount       String?  @map("bank_account")
+  accountName       String?  @map("account_name")
+  isBankVerified    Boolean  @default(false) @map("is_bank_verified")
+  bankVerifiedAt    DateTime? @map("bank_verified_at")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  transactions      WalletTransaction[]
+  payouts           PayoutRequest[]
+
+  @@map("merchant_wallets")
+}
+
+model WalletTransaction {
+  id              Int            @id @default(autoincrement())
+  walletId        Int            @map("wallet_id")
+  wallet          MerchantWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type            String         // ORDER_INFLOW | PAYOUT_DEDUCTION | SETTLEMENT | REFUND | ADJUSTMENT
+  amount          Decimal        @db.Decimal(14, 2)
+  balanceBefore   Decimal        @map("balance_before") @db.Decimal(14, 2)
+  balanceAfter    Decimal        @map("balance_after") @db.Decimal(14, 2)
+  referenceId     String?        @map("reference_id") // orderNumber atau requestNumber
+  description     String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  @@map("wallet_transactions")
+}
+
+model PayoutRequest {
+  id                 Int            @id @default(autoincrement())
+  walletId           Int            @map("wallet_id")
+  wallet             MerchantWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  requestNumber      String         @unique @map("request_number") // PO-202610-0001
+  source             String         @default("on_demand") @map("source") // on_demand | scheduled
+  amount             Decimal        @db.Decimal(14, 2)
+
+  // Data Rekening Penerima
+  bankCode           String         @map("bank_code")
+  bankAccount        String         @map("bank_account")
+  accountName        String         @map("account_name")
+
+  status             String         @default("pending") @map("status") // pending | processing | completed | rejected
+  rejectionReason    String?        @map("rejection_reason")
+
+  bankRefNumber      String?        @map("bank_ref_number")
+  proofImageUrl      String?        @map("proof_image_url")
+  processedByAdminId Int?           @map("processed_by_admin_id")
+  processedAt        DateTime?      @map("processed_at")
+
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  @@map("payout_requests")
 }

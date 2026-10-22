@@ -365,7 +365,7 @@ export function InventoryPage() {
           {/* Tabel Inventaris Bahan */}
           <div className="overflow-hidden rounded-[12px] border border-[#c4c7c7] bg-white shadow-xs">
             <table className="w-full text-left text-sm">
-              <thead className="bg-[#f7f3ea] text-[12px] uppercase tracking-wider text-muted border-b border-sand">
+              <thead className="bg-[#ededed] text-[12px] uppercase tracking-wider text-muted border-b border-sand">
                 <tr>
                   <th className="px-4 py-3">Ingredient</th>
                   <th className="px-4 py-3">Current</th>
@@ -429,7 +429,7 @@ export function InventoryPage() {
         </div>
 
         {/* Kolom Kanan: Panel Stock History (Sejajar di Samping Tabel) */}
-        <aside className="flex flex-col rounded-[12px] border border-[#c4c7c7] bg-cream p-5 h-fit">
+        <aside className="flex flex-col rounded-[12px] border border-[#c4c7c7] bg-white p-5 h-fit shadow-sm">
           <div className="mb-4 flex items-center justify-between border-b border-sand pb-3">
             <h3 className="font-semibold text-black text-sm uppercase tracking-wider">Stock History</h3>
             <span className="material-symbols-outlined text-stone text-[20px]">history</span>

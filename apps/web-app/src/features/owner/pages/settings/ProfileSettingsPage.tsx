@@ -94,7 +94,7 @@ export function ProfileSettingsPage() {
         <p className="text-stone">Informasi akun pengguna dan hak akses peran Anda dalam sistem.</p>
       </div>
 
-      <div className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-6">
+      <div className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-sm space-y-6">
         <div className="flex items-center gap-4 border-b border-sand pb-6">
           <div className="flex size-16 items-center justify-center rounded-full bg-sand font-display text-2xl font-bold text-black">
             {session?.user.name.charAt(0) || 'O'}
@@ -136,7 +136,7 @@ export function ProfileSettingsPage() {
         </div>
       </div>
 
-      <form onSubmit={handleChangePassword} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-4">
+      <form onSubmit={handleChangePassword} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-sm space-y-4">
         <div className="border-b border-sand pb-3">
           <h2 className="font-bold text-black">Ubah Password</h2>
           <p className="text-xs text-stone">Ganti password akun Anda sendiri. Min 8 karakter (huruf + angka + simbol).</p>
