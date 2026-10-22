@@ -23,12 +23,14 @@ import {
   isBrowserNotifyEnabled,
   setBrowserNotifyEnabled,
 } from '../../../lib/sound'
+import { usePosTheme } from '../../../lib/pos-theme'
 
 type SettingCategory = 'device' | 'cash' | 'account'
 type PrinterConnectionType = 'bluetooth' | 'usb' | 'lan'
 
 export function PosSettingsPage() {
   const { session, logout, business, saveCashSettings, refreshBusinessFromBackend, orders } = useCafe()
+  const { theme, setTheme } = usePosTheme()
   const [activeCategory, setActiveCategory] = useState<SettingCategory>('device')
 
   const savedPrinter = loadPrinterConfig()
@@ -238,7 +240,7 @@ export function PosSettingsPage() {
       <p className="mb-6 text-stone">Atur perangkat, modal kas, dan sesi pengguna.</p>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
-        <aside className="flex flex-col gap-2 rounded-[12px] border border-[#c4c7c7] bg-white p-3 h-fit">
+        <aside className="flex flex-col gap-2 rounded-[12px] border border-[#c4c7c7] bg-white p-3 h-fit shadow-sm">
           <button
             onClick={() => setActiveCategory('device')}
             className={`flex items-center gap-3 rounded-[10px] px-4 py-3 text-sm font-semibold transition-all ${
@@ -271,8 +273,47 @@ export function PosSettingsPage() {
         <main className="rounded-[12px] border border-[#c4c7c7] bg-white p-6 shadow-xs">
           {activeCategory === 'device' && (
             <div className="space-y-6">
+              {/* Tema tampilan: preferensi perangkat, langsung berubah & tersimpan */}
+              <div className="rounded-[12px] border border-sand bg-[#f9f9f9] p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-black">Tema Tampilan</p>
+                    <p className="text-xs text-stone">
+                      Pilih terang atau gelap untuk perangkat ini. Pilihan langsung diterapkan dan tetap tersimpan setelah refresh.
+                    </p>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label="Tema tampilan POS"
+                    className="flex shrink-0 self-start gap-1 rounded-[10px] border border-[#c4c7c7] bg-white p-1 sm:self-auto"
+                  >
+                    {([
+                      { id: 'light', label: 'Light', icon: 'light_mode' },
+                      { id: 'dark', label: 'Dark', icon: 'dark_mode' },
+                    ] as const).map((option) => {
+                      const active = theme === option.id
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setTheme(option.id)}
+                          className={`flex items-center gap-1.5 rounded-[8px] px-3 py-2 text-xs font-semibold transition-colors ${
+                            active
+                              ? 'bg-black text-white shadow-xs'
+                              : 'text-stone hover:bg-sand hover:text-black'
+                          }`}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">{option.icon}</span>
+                          <span>{option.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
               {/* Sound toggle di atas thermal printer */}
-              <div className="flex items-center justify-between rounded-xl border border-sand bg-cream p-4">
+              <div className="flex items-center justify-between p-4">
                 <div>
                   <p className="text-sm font-semibold text-black">Notifikasi Suara Pesanan Masuk</p>
                   <p className="text-xs text-stone">Bunyikan saat ada pesanan self-order baru.</p>
@@ -289,9 +330,9 @@ export function PosSettingsPage() {
               {soundError && (
                 <p className="text-xs font-medium text-[#ba1a1a]">{soundError}</p>
               )}
-
+              {/* <hr className="border-sand" /> */}
               {/* Notifikasi browser (opsional): muncul saat tab kasir tidak fokus */}
-              <div className="flex items-center justify-between rounded-xl border border-sand bg-cream p-4">
+              <div className="flex items-center justify-between p-4">
                 <div>
                   <p className="text-sm font-semibold text-black">Notifikasi Browser</p>
                   <p className="text-xs text-stone">Tampilkan notifikasi sistem saat tab tidak aktif.</p>
@@ -319,18 +360,18 @@ export function PosSettingsPage() {
               {browserNotifyError && (
                 <p className="text-xs font-medium text-[#ba1a1a]">{browserNotifyError}</p>
               )}
-
               <div>
                 <h2 className="text-xl font-semibold text-black">Konfigurasi Thermal Printer</h2>
                 <p className="text-xs text-stone mt-1">Pilih jenis koneksi printer nota fisik yang terhubung dengan perangkat kasir.</p>
               </div>
+              <hr className="border-sand" />
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <button
                   type="button"
                   onClick={() => pickPrinterType('bluetooth')}
                   className={`flex flex-col items-center justify-center rounded-[12px] border p-4 text-center transition-all ${
-                    printerType === 'bluetooth' ? 'border-black bg-cream font-bold text-black ring-1 ring-black' : 'border-clay/60 bg-white text-stone hover:border-black'
+                    printerType === 'bluetooth' ? 'border-black bg-[#ededed] font-bold text-black ring-1 ring-black' : 'border-clay/60 bg-white text-stone hover:border-black'
                   }`}
                 >
                   <span className="material-symbols-outlined mb-2 text-2xl">bluetooth</span>
@@ -340,7 +381,7 @@ export function PosSettingsPage() {
                   type="button"
                   onClick={() => pickPrinterType('usb')}
                   className={`flex flex-col items-center justify-center rounded-[12px] border p-4 text-center transition-all ${
-                    printerType === 'usb' ? 'border-black bg-cream font-bold text-black ring-1 ring-black' : 'border-clay/60 bg-white text-stone hover:border-black'
+                    printerType === 'usb' ? 'border-black bg-[#ededed] font-bold text-black ring-1 ring-black' : 'border-clay/60 bg-white text-stone hover:border-black'
                   }`}
                 >
                   <span className="material-symbols-outlined mb-2 text-2xl">usb</span>
@@ -350,7 +391,7 @@ export function PosSettingsPage() {
                   type="button"
                   onClick={() => pickPrinterType('lan')}
                   className={`flex flex-col items-center justify-center rounded-[12px] border p-4 text-center transition-all ${
-                    printerType === 'lan' ? 'border-black bg-cream font-bold text-black ring-1 ring-black' : 'border-clay/60 bg-white text-stone hover:border-black'
+                    printerType === 'lan' ? 'border-black bg-[#ededed] font-bold text-black ring-1 ring-black' : 'border-clay/60 bg-white text-stone hover:border-black'
                   }`}
                 >
                   <span className="material-symbols-outlined mb-2 text-2xl">lan</span>
@@ -358,7 +399,7 @@ export function PosSettingsPage() {
                 </button>
               </div>
 
-              <div className="rounded-[12px] border border-sand bg-cream p-5 space-y-4">
+              <div className="rounded-[12px] border border-sand bg-[#f9f9f9] p-5 space-y-4">
                 {printerType === 'bluetooth' && (
                   <div>
                     <h3 className="font-semibold text-sm mb-1">Web Bluetooth Printer</h3>
@@ -404,7 +445,7 @@ export function PosSettingsPage() {
                 {printerType === 'lan' && (
                   <div className="space-y-3">
                     <h3 className="font-semibold text-sm mb-1">Network LAN Printer</h3>
-                    <p className="rounded-lg border border-[#9a6b2f]/40 bg-[#f5e8c8] px-3 py-2 text-xs text-black">
+                    <p className="rounded-lg border border-[#9a6b2f]/40 bg-[#f9f9f9] px-3 py-2 text-xs text-black">
                       Mode simulasi — browser tidak bisa konek TCP langsung ke printer. Koneksi nyata via backend (proxy) menyusul; konfigurasi di bawah tersimpan per perangkat.
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">

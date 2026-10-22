@@ -17,6 +17,11 @@ const NAV_ITEMS: MenuItem[] = [
     icon: 'dashboard',
   },
   {
+    to: '/backoffice/wallet',
+    label: 'Saldo & Pencairan',
+    icon: 'account_balance_wallet',
+  },
+  {
     label: 'Sales',
     icon: 'payments',
     children: [

@@ -114,7 +114,7 @@ export function SalesOmsetPage() {
             ))}
           </select>
 
-          <div className="flex rounded-lg border border-[#c4c7c7] bg-sand/50 p-1">
+          <div className="flex rounded-lg border border-[#c4c7c7] bg-white/50 p-1">
             {(['daily', 'weekly', 'monthly'] as const).map((p) => (
               <button
                 key={p}
@@ -165,21 +165,21 @@ export function SalesOmsetPage() {
       {effectiveView === 'omset' ? (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <article className="rounded-[12px] bg-cream p-5 border border-[#c4c7c7]">
+            <article className="rounded-[12px] bg-white p-5 border border-[#c4c7c7] p-5 shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Total Omset ({period} - {selectedYear})</p>
               <p className="mt-2 text-[28px] font-bold text-black">{formatRupiah(totalRevenue)}</p>
             </article>
-            <article className="rounded-[12px] bg-cream p-5 border border-[#c4c7c7]">
+            <article className="rounded-[12px] bg-white p-5 border border-[#c4c7c7] p-5 shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Total Transaksi</p>
               <p className="mt-2 text-[28px] font-bold text-black">{totalOrdersCount} Pesanan</p>
             </article>
-            <article className="rounded-[12px] bg-cream p-5 border border-[#c4c7c7]">
+            <article className="rounded-[12px] bg-white p-5 border border-[#c4c7c7] p-5 shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Rata-rata Transaksi</p>
               <p className="mt-2 text-[28px] font-bold text-black">{formatRupiah(avgOrderValue)}</p>
             </article>
           </div>
 
-          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-6 shadow-2xs">
+          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
             <div className="mb-6 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-black">Grafik Penjualan</h2>
               <span className="material-symbols-outlined text-stone">show_chart</span>
@@ -212,17 +212,17 @@ export function SalesOmsetPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <article className="rounded-[12px] bg-cream p-5 border border-[#c4c7c7]">
+            <article className="rounded-[12px] bg-white p-5 border border-[#c4c7c7] shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Self Order</p>
               <p className="mt-2 text-[28px] font-bold text-black">{formatRupiah(selfRevenue)}</p>
               <p className="text-xs text-stone">{selfOrders.length} transaksi</p>
             </article>
-            <article className="rounded-[12px] bg-cream p-5 border border-[#c4c7c7]">
+            <article className="rounded-[12px] bg-white p-5 border border-[#c4c7c7] shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Manual Order</p>
               <p className="mt-2 text-[28px] font-bold text-black">{formatRupiah(manualRevenue)}</p>
               <p className="text-xs text-stone">{manualOrders.length} transaksi</p>
             </article>
-            <article className="rounded-[12px] bg-white p-5 border border-[#c4c7c7]">
+            <article className="rounded-[12px] bg-white p-5 border border-[#c4c7c7] shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Proporsi</p>
               <p className="mt-2 text-[20px] font-bold text-black">
                 {totalRevenue > 0 ? `${Math.round((selfRevenue / totalRevenue) * 100)}% Self / ${Math.round((manualRevenue / totalRevenue) * 100)}% Manual` : '-'}
@@ -236,7 +236,7 @@ export function SalesOmsetPage() {
             </article>
           </div>
 
-          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-6 shadow-2xs">
+          <div className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
             <div className="mb-6 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-black">Grafik Sales Type</h2>
               <span className="material-symbols-outlined text-stone">show_chart</span>

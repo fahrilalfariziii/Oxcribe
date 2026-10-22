@@ -325,15 +325,15 @@ export function TablesPage() {
 
       {/* Ringkasan Statistik Meja */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <article className="rounded-[12px] border border-[#c4c7c7] bg-cream p-5">
+        <article className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Total Meja</p>
           <p className="mt-2 text-[28px] font-bold text-black">{totalTables} Meja</p>
         </article>
-        <article className="rounded-[12px] border border-[#c4c7c7] bg-cream p-5">
+        <article className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Meja Aktif</p>
           <p className="mt-2 text-[28px] font-bold text-sage">{activeTables} Aktif</p>
         </article>
-        <article className="rounded-[12px] border border-[#c4c7c7] bg-cream p-5">
+        <article className="rounded-[12px] border border-[#c4c7c7] bg-white p-5 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-stone">Meja Inaktif</p>
           <p className="mt-2 text-[28px] font-bold text-[#ba1a1a]">{inactiveTables} Inaktif</p>
         </article>
@@ -344,7 +344,7 @@ export function TablesPage() {
         {tables.map((t) => (
           <article
             key={t.id}
-            className="flex flex-col justify-between rounded-[16px] border border-[#c4c7c7] bg-white p-5 shadow-2xs transition-all hover:shadow-md"
+            className="flex flex-col justify-between rounded-[16px] border border-[#c4c7c7] bg-white p-5 shadow-sm transition-all hover:shadow-md"
           >
             <div>
               {/* Header Kartu: Nomor Meja & Toggle Status */}

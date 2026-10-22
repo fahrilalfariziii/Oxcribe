@@ -158,7 +158,7 @@ export function CafeSettingsPage() {
       </div>
 
       {/* Kategori: Profil identitas vs Tema & tampilan (tema disembunyikan bila flag OFF) */}
-      <div className="flex max-w-2xl gap-2 rounded-lg border border-[#c4c7c7] bg-cream p-1.5">
+      <div className="flex max-w-2xl gap-2 rounded-lg border border-[#c4c7c7] bg-white p-1.5">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -176,7 +176,7 @@ export function CafeSettingsPage() {
       {activeTab === 'tema' && themeOn ? (
         <ThemeSettingsPage embedded />
       ) : activeTab === 'rekening' ? (
-      <form onSubmit={handleSaveRekening} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-5">
+      <form onSubmit={handleSaveRekening} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-sm space-y-5">
         <div className="border-b border-sand pb-3">
           <h2 className="font-bold text-black text-base">Rekening Kafe</h2>
           <p className="text-xs text-stone">Tampil di kasir untuk pembayaran manual & jadi acuan pencairan pendapatan owner.</p>
@@ -227,7 +227,7 @@ export function CafeSettingsPage() {
         </div>
       </form>
       ) : (
-      <form onSubmit={handleSaveCafeProfile} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-5">
+      <form onSubmit={handleSaveCafeProfile} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-sm space-y-5">
         <div className="border-b border-sand pb-3">
           <h2 className="font-bold text-black text-base">Identitas Bisnis</h2>
           <p className="text-xs text-stone">Ubah rincian informasi bisnis Anda.</p>

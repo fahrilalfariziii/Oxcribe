@@ -66,13 +66,13 @@ export function DashboardPage() {
           <h1 className="font-display text-[40px] font-semibold tracking-tight">Dashboard Overview</h1>
           <p className="text-muted">Today's Performance</p>
         </div>
-        <div className="flex rounded-[12px] border border-[#c4c7c7] bg-[#f2ede4] p-[5px]">
+        <div className="flex rounded-[12px] border border-[#c4c7c7] bg-white p-[5px]">
           {(['daily', 'weekly', 'monthly'] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
               className={`rounded-[8px] px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.6px] ${
-                period === p ? 'bg-cream text-black shadow-sm' : 'text-muted'
+                period === p ? 'bg-[#B8B8B8] text-black shadow-sm' : 'text-muted'
               }`}
             >
               {p}
@@ -86,7 +86,7 @@ export function DashboardPage() {
           { label: 'Total Orders', value: String(paid.length), hint: paid.length ? 'Transaksi lunas' : 'Belum ada order' },
           { label: 'Avg. Transaction', value: formatRupiah(Math.round(avg)), hint: paid.length ? 'Rata-rata per transaksi' : '-' },
         ].map((k) => (
-          <article key={k.label} className="flex h-32 flex-col justify-between rounded-[12px] bg-cream p-6 ring-1 ring-[#e4e2dd]">
+          <article key={k.label} className="flex h-32 flex-col justify-between rounded-[12px] border border-stone-200 bg-white p-5 shadow-sm">
             <p className="text-[12px] font-semibold uppercase tracking-[0.6px] text-muted">{k.label}</p>
             <div>
               <p className="text-[28px] font-bold tracking-tight">{k.value}</p>
@@ -102,7 +102,7 @@ export function DashboardPage() {
           { label: 'MDR DOKU (est.)', value: formatRupiah(mdrTotal), hint: 'Estimasi tabel resmi' },
           { label: 'Pendapatan Bersih (est.)', value: formatRupiah(netTotal), hint: 'Kotor − fee − MDR' },
         ].map((k) => (
-          <article key={k.label} className="flex h-32 flex-col justify-between rounded-[12px] bg-[#f5f0e7] p-6 ring-1 ring-[#e4e2dd]">
+          <article key={k.label} className="flex h-32 flex-col justify-between rounded-[12px] border border-stone-200 bg-white p-5 shadow-sm">
             <p className="text-[12px] font-semibold uppercase tracking-[0.6px] text-muted">{k.label}</p>
             <div>
               <p className="text-[28px] font-bold tracking-tight">{k.value}</p>
@@ -114,7 +114,7 @@ export function DashboardPage() {
       )}
       <div className="grid grid-cols-12 gap-6">
         {fullOn ? (
-        <section className="col-span-12 min-h-[400px] rounded-[12px] bg-cream p-6 ring-1 ring-[#e4e2dd] xl:col-span-8">
+        <section className="col-span-12 min-h-[400px] rounded-[12px] border border-stone-200 bg-white p-5 shadow-sm xl:col-span-8">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Omset {period}</h2>
             <span className="text-[12px] font-semibold uppercase tracking-wider text-muted">
@@ -152,14 +152,14 @@ export function DashboardPage() {
           )}
         </section>
         ) : (
-        <section className="col-span-12 rounded-[12px] bg-cream p-6 ring-1 ring-[#e4e2dd] xl:col-span-8">
+        <section className="col-span-12 rounded-[12px] border border-stone-200 bg-white p-5 shadow-sm xl:col-span-8">
           <h2 className="text-lg font-semibold">Grafik analitik penuh</h2>
           <p className="mt-1 text-sm text-stone">Paket kafe Anda hanya mencakup ringkasan angka di atas. Hubungi tim sales Oxcribe untuk upgrade ke paket dengan analitik lengkap.</p>
         </section>
         )}
         <div className="col-span-12 flex flex-col gap-6 xl:col-span-4">
           {fullOn ? (
-          <section className="rounded-[12px] bg-cream p-5 ring-1 ring-[#e4e2dd]">
+          <section className="rounded-[12px] border border-stone-200 bg-white p-5 shadow-sm">
             <h2 className="mb-4 text-lg font-semibold">Best Selling</h2>
             {best.length === 0 ? (
               <p className="text-sm text-muted">Belum ada penjualan.</p>
@@ -189,7 +189,7 @@ export function DashboardPage() {
             )}
           </section>
           ) : null}
-          <section className="rounded-[12px] bg-[#f5f0e7] p-5">
+          <section className="rounded-[12px] border border-stone-200 bg-white p-5 shadow-sm">
             <h2 className="mb-2 text-sm font-semibold">Status Alerts</h2>
             {oos.length === 0 ? (
               <p className="text-sm text-muted">Semua menu tersedia.</p>

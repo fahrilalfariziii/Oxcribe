@@ -62,7 +62,7 @@ export function OwnerLayout() {
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-cream text-black">
+    <div className="flex h-screen overflow-hidden bg-white text-black">
       {/* Navbar Samping (Sidebar) Terpisah */}
       <OwnerSidebar />
 

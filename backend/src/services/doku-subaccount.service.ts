@@ -210,53 +210,150 @@ export async function createDokuSplitRule(rules: DokuSplitRuleItem[]): Promise<s
   return data.splitRuleId;
 }
 
-/** Inquiry transfer (pencairan) — validasi tujuan, hasilkan referenceNo. */
+/** Inquiry transfer rekening bank (menggunakan SNAP Kirim DOKU standard)
+ *  Path: /snap/v1.1/emoney/bank-account-inquiry
+ *  Bila fitur disbursement DOKU belum aktif di akun sandbox (4034215 / 4031115),
+ *  akan melempar error asli DOKU sehingga caller dapat menangani dengan graceful fallback.
+ */
 export async function inquiryDokuTransfer(params: {
   referenceNo: string;
-  fromAccount: string;
-  type: "BANK_ACCOUNT" | "DOKU_SUB_ACCOUNT" | "DOKU_WALLET";
+  fromAccount?: string;
+  type?: "BANK_ACCOUNT" | "DOKU_SUB_ACCOUNT" | "DOKU_WALLET";
   amount: number;
   beneficiaryBankCode?: string;
   beneficiaryAccountNumber: string;
+  beneficiaryAccountName?: string;
+  customerNumber?: string;
   remark?: string;
 }): Promise<Record<string, unknown>> {
-  return dokuSubPost("/sub-account/v2.0/transfer-inquiry", {
+  const cfg = resolveDokuConfig();
+  if (!cfg) throw new Error("Kredensial DOKU belum dikonfigurasi (.env)");
+  const token = await getDokuB2BToken();
+  if (!token) throw new Error("Gagal mendapatkan B2B token DOKU");
+
+  const INQUIRY_PATH = "/snap/v1.1/emoney/bank-account-inquiry";
+  const timestamp = dokuTimestamp();
+  const body = {
     partnerReferenceNo: params.referenceNo,
-    type: params.type,
+    customerNumber: params.customerNumber || "081234567890",
     amount: { value: `${Math.round(params.amount)}.00`, currency: "IDR" },
-    channel: "BI_FAST",
-    fromAccount: params.fromAccount,
-    ...(params.beneficiaryBankCode ? { beneficiaryBankCode: params.beneficiaryBankCode } : {}),
     beneficiaryAccountNumber: params.beneficiaryAccountNumber,
-    ...(params.remark ? { remark: params.remark } : {}),
+    additionalInfo: {
+      channelCode: "11", // BI-FAST
+      beneficiaryBankCode: params.beneficiaryBankCode || "014",
+      beneficiaryAccountName: params.beneficiaryAccountName || "Beneficiary",
+      senderCountryCode: "ID",
+    },
+  };
+
+  const signature = buildSymmetricSignature({
+    secretKey: cfg.secretKey,
+    httpMethod: "POST",
+    endpointUrl: INQUIRY_PATH,
+    accessToken: token,
+    body,
+    timestamp,
   });
+
+  const res = await fetch(`${dokuBaseUrl()}${INQUIRY_PATH}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-PARTNER-ID": cfg.clientId,
+      "X-EXTERNAL-ID": dokuExternalId(),
+      "X-TIMESTAMP": timestamp,
+      "X-SIGNATURE": signature,
+      Authorization: `Bearer ${token}`,
+      "CHANNEL-ID": "95221",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
+    responseCode?: string;
+    responseMessage?: string;
+  };
+
+  if (!res.ok) {
+    throw new Error(`DOKU inquiry gagal ${res.status} [${data.responseCode}]: ${data.responseMessage || JSON.stringify(data)}`);
+  }
+  return data;
 }
 
-/** Eksekusi transfer memakai referenceNo dari inquiry.
- *  DOKU mewajibkan detail transfer di-echo kembali (partnerReferenceNo,
- *  fromAccount, beneficiary*, amount) — referenceNo saja DITOLAK
- *  (4004302 Invalid Mandatory Field). Nama penerima pakai yang
- *  dikembalikan inquiry (jangan karang sendiri agar tak MISMATCH). */
+/** Eksekusi transfer bank via SNAP Kirim DOKU (/snap/v1.1/emoney/transfer-bank) */
 export async function payDokuTransfer(params: {
   partnerReferenceNo: string;
   referenceNo: string;
-  type: "BANK_ACCOUNT" | "DOKU_SUB_ACCOUNT" | "DOKU_WALLET";
+  type?: "BANK_ACCOUNT" | "DOKU_SUB_ACCOUNT" | "DOKU_WALLET";
   channel?: string;
-  fromAccount: string;
+  fromAccount?: string;
   beneficiaryBankCode: string;
   beneficiaryAccountNumber: string;
   beneficiaryAccountName: string;
+  customerNumber?: string;
+  sessionId?: string;
   amount: number;
+  remark?: string;
 }): Promise<Record<string, unknown>> {
-  return dokuSubPost("/sub-account/v2.0/transfer-payment", {
+  const cfg = resolveDokuConfig();
+  if (!cfg) throw new Error("Kredensial DOKU belum dikonfigurasi (.env)");
+  const token = await getDokuB2BToken();
+  if (!token) throw new Error("Gagal mendapatkan B2B token DOKU");
+
+  const TRANSFER_PATH = "/snap/v1.1/emoney/transfer-bank";
+  const timestamp = dokuTimestamp();
+  const body = {
     partnerReferenceNo: params.partnerReferenceNo,
-    referenceNo: params.referenceNo,
-    type: params.type,
-    channel: params.channel ?? "BI_FAST",
-    fromAccount: params.fromAccount,
-    beneficiaryBankCode: params.beneficiaryBankCode,
+    customerNumber: params.customerNumber || "081234567890",
     beneficiaryAccountNumber: params.beneficiaryAccountNumber,
-    beneficiaryAccountName: params.beneficiaryAccountName,
+    beneficiaryBankCode: params.beneficiaryBankCode,
     amount: { value: `${Math.round(params.amount)}.00`, currency: "IDR" },
+    sessionId: params.sessionId || params.referenceNo.slice(0, 25),
+    additionalInfo: {
+      channelCode: params.channel === "ONLINE" ? "07" : "11",
+      beneficiaryFirstName: params.beneficiaryAccountName.slice(0, 30),
+      beneficiaryLastName: params.beneficiaryAccountName.slice(30, 60) || "-",
+      beneficiaryPhoneNumber: "081234567890",
+      beneficiaryAccountName: params.beneficiaryAccountName,
+      senderCountryCode: "ID",
+      senderFirstName: "Oxcribe",
+      senderLastName: "Merchant",
+      senderPersonalId: "1234567890123456",
+      senderPersonalIdType: "KTP",
+      remark: params.remark || "Pencairan dana",
+    },
+  };
+
+  const signature = buildSymmetricSignature({
+    secretKey: cfg.secretKey,
+    httpMethod: "POST",
+    endpointUrl: TRANSFER_PATH,
+    accessToken: token,
+    body,
+    timestamp,
   });
+
+  const res = await fetch(`${dokuBaseUrl()}${TRANSFER_PATH}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-PARTNER-ID": cfg.clientId,
+      "X-EXTERNAL-ID": dokuExternalId(),
+      "X-TIMESTAMP": timestamp,
+      "X-SIGNATURE": signature,
+      Authorization: `Bearer ${token}`,
+      "CHANNEL-ID": "95221",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
+    responseCode?: string;
+    responseMessage?: string;
+  };
+
+  if (!res.ok) {
+    throw new Error(`DOKU transfer gagal ${res.status} [${data.responseCode}]: ${data.responseMessage || JSON.stringify(data)}`);
+  }
+  return data;
 }

@@ -14,6 +14,7 @@ import { ManualOrderPage } from "./features/pos/pages/ManualOrderPage";
 import { PosSettingsPage } from "./features/pos/pages/PosSettingsPage";
 import { OwnerLayout } from "./features/owner/OwnerLayout";
 import { DashboardPage } from "./features/owner/pages/DashboardPage";
+import { WalletPage } from "./features/owner/pages/WalletPage";
 import { SalesOmsetPage } from "./features/owner/pages/sales/SalesOmsetPage";
 import { SalesPerformancePage } from "./features/owner/pages/sales/SalesPerformancePage";
 import { SalesHistoryPage } from "./features/owner/pages/sales/SalesHistoryPage";
@@ -100,6 +101,7 @@ export default function App() {
           >
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="wallet" element={<WalletPage />} />
 
             {/* NESTED SALES ROUTES */}
             <Route path="sales">

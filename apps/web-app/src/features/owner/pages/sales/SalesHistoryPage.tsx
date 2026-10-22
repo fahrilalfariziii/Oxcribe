@@ -128,7 +128,7 @@ export function SalesHistoryPage() {
               <Fragment key={o.id}>
               <tr
                 onClick={() => setExpandedId(open ? null : o.id)}
-                className="cursor-pointer border-t border-sand hover:bg-cream/40 transition-colors"
+                className="cursor-pointer border-t border-sand hover:bg-white/40 transition-colors"
                 title="Klik untuk rincian fee & pendapatan bersih"
               >
                 <td className="px-4 py-3 text-stone">{formatTime(o.createdAt)}</td>
@@ -144,7 +144,7 @@ export function SalesHistoryPage() {
                 <td className="px-4 py-3 font-semibold text-black text-right">{formatRupiah(o.total)}</td>
               </tr>
               {open && (
-              <tr className="border-t border-dashed border-sand bg-cream/60">
+              <tr className="border-t border-dashed border-sand bg-white/60">
                 <td colSpan={5} className="px-4 py-3">
                   <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
                     <div className="flex justify-between gap-2"><span className="text-stone">Omset kotor</span><span className="font-semibold">{formatRupiah(o.total)}</span></div>

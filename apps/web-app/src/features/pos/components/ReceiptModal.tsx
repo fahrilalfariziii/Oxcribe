@@ -25,7 +25,7 @@ export function ReceiptModal({ order, onClose }: Props) {
       {/* Backdrop Klik untuk Tutup */}
       <div className="absolute inset-0" onClick={onClose} />
 
-      <div className="relative z-10 flex max-h-[90vh] w-full max-w-sm flex-col rounded-[16px] bg-white shadow-2xl">
+      <div className="pos-receipt-surface relative z-10 flex max-h-[90vh] w-full max-w-sm flex-col rounded-[16px] bg-white shadow-2xl">
         {/* Header Modal */}
         <div className="flex items-center justify-between border-b border-sand px-5 py-4 print:hidden">
           <h3 className="font-semibold text-black">Pratinjau Struk</h3>

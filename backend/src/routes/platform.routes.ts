@@ -10,6 +10,11 @@ import { asyncHandler } from "../middleware/error-handler";
 import { requirePlatformAuth, requirePlatformRole } from "../middleware/platform-auth";
 import { PLANS as STATIC_PLANS } from "../lib/plans";
 import type { DokuSubAccountEntry, DokuTransferInquiry } from "../services/doku-subaccount.service";
+import {
+  completePayout,
+  rejectPayout,
+  settleAllPendingBalances,
+} from "../services/wallet.service";
 
 export const platformRouter = Router();
 
@@ -229,35 +234,11 @@ platformRouter.post(
       ownerEmail: owner.email,
     });
 
-    // Otomatisasi register sub-account DOKU (best-effort): onboarding tetap 201
-    // walau DOKU gagal — admin bisa retry via endpoint register (idempoten).
-    let dokuSubAccount: { status: string; profileId: string | null } = { status: "none", profileId: null };
-    try {
-      const { registerDokuSubAccount, invalidateTenantSubAccountRoute } = await import("../services/doku-subaccount.service");
-      const sub = await registerDokuSubAccount({
-        referenceNo: `SUB-${business.id}-${Date.now().toString(36)}`,
-        name: business.name,
-        email: owner.email,
-        phoneNo: undefined,
-      });
-      await prisma.business.update({
-        where: { id: business.id },
-        data: { dokuProfileId: sub.profileId, dokuSubAccounts: (sub.accounts ?? []) as object, dokuSubAccountStatus: "active" },
-      });
-      invalidateTenantSubAccountRoute(business.id);
-      await recordAudit(req.platformAdmin!.adminId, business.id, "doku_subaccount_registered", { status: "none" }, { profileId: sub.profileId, auto: true });
-      dokuSubAccount = { status: "active", profileId: sub.profileId };
-    } catch (e) {
-      await prisma.business.update({ where: { id: business.id }, data: { dokuSubAccountStatus: "failed" } });
-      console.warn(`[onboarding] register sub-account DOKU gagal untuk tenant ${business.id}:`, (e as Error).message);
-      dokuSubAccount = { status: "failed", profileId: null };
-    }
-
     res.status(201).json({
       business: { id: business.id, name: business.name, slug: business.slug },
       owner: { id: owner.id, name: owner.name, email: owner.email },
       subscription: { id: subscription.id, planCode: plan.code, status: subscription.status },
-      dokuSubAccount,
+      dokuSubAccount: { status: "none", profileId: null },
     });
   })
 );
@@ -798,25 +779,17 @@ platformRouter.patch(
     const data = settlementSchema.parse(req.body);
     const business = await prisma.business.findUnique({ where: { id } });
     if (!business) throw AppError.notFound("Tenant tidak ditemukan");
-    if (!business.dokuProfileId) throw AppError.badRequest("Tenant belum punya sub-account DOKU");
-    const { inquiryDokuTransfer, pickIdrAccountNumber } = await import("../services/doku-subaccount.service");
-    const accounts = (business.dokuSubAccounts ?? []) as DokuSubAccountEntry[];
-    // Sumber inquiry = akun IDR (bukan POINT) agar tak selalu 403 saat saldo POINT 0.
-    const fromAccount = pickIdrAccountNumber(accounts);
-    if (!fromAccount) throw AppError.badRequest("Nomor sub-akun sumber tidak ditemukan (cek saldo dulu)");
-    // amount kecil untuk validasi nama penerima. Bila saldo sub-account belum cukup
-    // (DOKU 4034202/4034215), data tetap disimpan sebagai UNVERIFIED agar bisa
-    // diverifikasi ulang setelah top-up — tanpa 500.
+    const { inquiryDokuTransfer } = await import("../services/doku-subaccount.service");
+
     let dokuName = "";
     let verified: boolean | null = null;
     try {
       const inquiry = (await inquiryDokuTransfer({
         referenceNo: `SET-${id}-${Date.now().toString(36)}`,
-        fromAccount,
-        type: "BANK_ACCOUNT",
         amount: 10000,
         beneficiaryBankCode: data.bankCode,
         beneficiaryAccountNumber: data.bankAccount,
+        beneficiaryAccountName: data.bankName,
         remark: "verifikasi rekening settlement",
       })) as Record<string, unknown>;
       dokuName = ["beneficiaryAccountName", "beneficiaryName", "accountName", "name"]
@@ -826,8 +799,11 @@ platformRouter.patch(
       verified = !data.bankName || !dokuName || norm(dokuName).includes(norm(data.bankName)) || norm(data.bankName).includes(norm(dokuName));
     } catch (e) {
       const msg = (e as Error).message;
-      if (!/40342(02|15)/.test(msg)) throw e;
-      console.warn(`[settlement] inquiry tertunda (saldo 0) untuk tenant ${id}:`, msg);
+      // Tangani penolakan jika fitur disbursement belum aktif di akun sandbox (4034215 / 4031115)
+      // atau saldo DOKU belum ada (4034202). Simpan tetap aman sebagai UNVERIFIED tanpa melempar 500.
+      if (!/403(42|11)(02|15)/.test(msg)) {
+        console.warn(`[settlement] inquiry DOKU ditolak untuk tenant ${id}:`, msg);
+      }
     }
     const before = {
       bankCode: business.dokuSettlementBankCode,
@@ -1250,5 +1226,142 @@ platformRouter.get(
       take: 200,
     });
     res.json({ users });
+  })
+);
+
+// ================= Payouts & Settlement (Internal Ledger Management) =================
+
+const payoutQuerySchema = z.object({
+  status: z.enum(["pending", "processing", "completed", "rejected"]).optional(),
+  businessId: z.coerce.number().int().optional(),
+});
+
+// GET /api/platform/payouts — daftar seluruh permohonan pencairan dana
+platformRouter.get(
+  "/payouts",
+  asyncHandler(async (req, res) => {
+    const { status, businessId } = payoutQuerySchema.parse(req.query);
+    const payouts = await prisma.payoutRequest.findMany({
+      where: {
+        ...(status ? { status } : {}),
+        ...(businessId ? { wallet: { businessId } } : {}),
+      },
+      include: {
+        wallet: {
+          include: {
+            business: { select: { id: true, name: true, slug: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+
+    res.json({
+      payouts: payouts.map((p) => ({
+        id: p.id,
+        requestNumber: p.requestNumber,
+        source: p.source,
+        amount: Number(p.amount),
+        bankCode: p.bankCode,
+        bankAccount: p.bankAccount,
+        accountName: p.accountName,
+        status: p.status,
+        rejectionReason: p.rejectionReason,
+        bankRefNumber: p.bankRefNumber,
+        proofImageUrl: p.proofImageUrl,
+        createdAt: p.createdAt,
+        processedAt: p.processedAt,
+        business: p.wallet.business,
+      })),
+    });
+  })
+);
+
+const completePayoutSchema = z.object({
+  bankRefNumber: z.string().min(1, "Nomor referensi bank wajib diisi"),
+  proofImageUrl: z.string().optional(),
+});
+
+// POST /api/platform/payouts/:id/complete — tandai transfer m-Banking selesai
+platformRouter.post(
+  "/payouts/:id/complete",
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { bankRefNumber, proofImageUrl } = completePayoutSchema.parse(req.body);
+
+    const updated = await completePayout({
+      payoutId: id,
+      adminId: req.platformAdmin!.adminId,
+      bankRefNumber,
+      proofImageUrl,
+    });
+
+    await recordAudit(
+      req.platformAdmin!.adminId,
+      null,
+      "payout_completed",
+      { payoutId: id },
+      { payoutId: id, requestNumber: updated.requestNumber, bankRefNumber }
+    );
+
+    res.json({
+      message: "Pencairan dana berhasil ditandai selesai",
+      payout: updated,
+    });
+  })
+);
+
+const rejectPayoutSchema = z.object({
+  reason: z.string().min(3, "Alasan penolakan wajib diisi minimal 3 karakter"),
+});
+
+// POST /api/platform/payouts/:id/reject — tolak penarikan dan refund saldo ke merchant
+platformRouter.post(
+  "/payouts/:id/reject",
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { reason } = rejectPayoutSchema.parse(req.body);
+
+    const updated = await rejectPayout({
+      payoutId: id,
+      adminId: req.platformAdmin!.adminId,
+      reason,
+    });
+
+    await recordAudit(
+      req.platformAdmin!.adminId,
+      null,
+      "payout_rejected",
+      { payoutId: id },
+      { payoutId: id, requestNumber: updated.requestNumber, reason }
+    );
+
+    res.json({
+      message: "Pencairan dana berhasil ditolak dan saldo telah dikembalikan ke dompet merchant",
+      payout: updated,
+    });
+  })
+);
+
+// POST /api/platform/payouts/run-settlement — trigger settlement manual H+1
+platformRouter.post(
+  "/payouts/run-settlement",
+  requirePlatformRole("superadmin"),
+  asyncHandler(async (req, res) => {
+    const results = await settleAllPendingBalances();
+
+    await recordAudit(
+      req.platformAdmin!.adminId,
+      null,
+      "manual_settlement_triggered",
+      {},
+      { settledWalletsCount: results.length }
+    );
+
+    res.json({
+      message: `Settlement berhasil memproses ${results.length} dompet merchant`,
+      count: results.length,
+    });
   })
 );
