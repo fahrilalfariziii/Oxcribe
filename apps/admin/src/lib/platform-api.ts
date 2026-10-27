@@ -78,6 +78,23 @@ export type LeadRow = {
   createdAt: string
 }
 
+export type PayoutRow = {
+  id: number
+  requestNumber: string
+  source: string
+  amount: number
+  bankCode: string
+  bankAccount: string
+  accountName: string
+  status: 'pending' | 'processing' | 'completed' | 'rejected'
+  rejectionReason: string | null
+  bankRefNumber: string | null
+  proofImageUrl: string | null
+  createdAt: string
+  processedAt: string | null
+  business: { id: number; name: string; slug: string | null }
+}
+
 export type LandingSectionRow = {
   id: number
   sectionKey: string
@@ -245,6 +262,29 @@ export const platformApi = {
     }),
   exportInvoicesUrl: (businessId?: number) =>
     `${API_BASE}/api/platform/invoices/export.csv${businessId ? `?businessId=${businessId}` : ''}`,
+
+  // Payouts & Settlement (Internal Ledger)
+  getPayouts: (params?: { status?: string; businessId?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.businessId) qs.set('businessId', String(params.businessId))
+    const s = qs.toString()
+    return request<{ payouts: PayoutRow[] }>(`/api/platform/payouts${s ? `?${s}` : ''}`)
+  },
+  completePayout: (id: number, payload: { bankRefNumber: string; proofImageUrl?: string }) =>
+    request<{ message: string; payout: unknown }>(`/api/platform/payouts/${id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  rejectPayout: (id: number, reason: string) =>
+    request<{ message: string; payout: unknown }>(`/api/platform/payouts/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  triggerSettlement: () =>
+    request<{ message: string; count: number }>('/api/platform/payouts/run-settlement', {
+      method: 'POST',
+    }),
 
   getLeads: (status?: string) =>
     request<{ leads: LeadRow[] }>(`/api/platform/leads${status ? `?status=${status}` : ''}`),

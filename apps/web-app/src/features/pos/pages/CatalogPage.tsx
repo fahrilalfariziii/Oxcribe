@@ -202,10 +202,10 @@ export function CatalogPage() {
       {loading ? (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="animate-pulse rounded-[12px] border border-[#c4c7c7] bg-cream p-4">
-              <div className="size-20 rounded-lg bg-sand" />
-              <div className="mt-3 h-4 w-2/3 rounded bg-sand" />
-              <div className="mt-2 h-3 w-1/3 rounded bg-sand" />
+            <div key={i} className="animate-pulse rounded-[12px] border border-[#c4c7c7] bg-[#ededed] p-4">
+              <div className="size-20 rounded-lg bg-[#ededed]" />
+              <div className="mt-3 h-4 w-2/3 rounded bg-[#ededed]" />
+              <div className="mt-2 h-3 w-1/3 rounded bg-[#ededed]" />
             </div>
           ))}
         </div>
@@ -215,11 +215,11 @@ export function CatalogPage() {
             const pending = pendingId === p.id
             const stock = stockFlags.get(p.id)
             return (
-              <article key={p.id} className="flex gap-4 rounded-[12px] border border-[#c4c7c7] bg-cream p-4 items-center">
+              <article key={p.id} className="flex gap-4 rounded-[12px] border border-[#c4c7c7] bg-[#ededed] p-4 items-center">
                 {p.imageUrl ? (
                   <img src={p.imageUrl} alt="" className="size-20 rounded-lg object-cover" />
                 ) : (
-                  <div className="flex size-20 shrink-0 items-center justify-center rounded-lg bg-sand font-display text-2xl text-stone">
+                  <div className="flex size-20 shrink-0 items-center justify-center rounded-lg bg-white font-display text-2xl text-stone">
                     {(p.name || '?').charAt(0).toUpperCase()}
                   </div>
                 )}

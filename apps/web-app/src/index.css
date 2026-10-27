@@ -23,10 +23,157 @@ body,
   height: 100%;
 }
 
+/* ---- Tema POS (scoped ke root area POS, bukan seluruh aplikasi) ----
+   Tailwind 4 menghasilkan utilitas seperti `bg-white` sebagai
+   `var(--color-white)`, jadi menimpa variabel di scope ini membalik
+   sebagian besar permukaan/teks tanpa mengubah tiap komponen.
+   Owner, self-order, dan landing tidak terpengaruh. */
+[data-pos-theme='dark'] {
+  --color-white: #18181b;
+  --color-black: #fafafa;
+  --color-cream: #09090b;
+  --color-paper: #121215;
+  --color-sand: #27272a;
+  --color-clay: #3f3f46;
+  --color-stone: #a1a1aa;
+  --color-muted: #71717a;
+  --color-ink: #f4f4f5;
+  --color-soil: #e4e4e7;
+  --color-mint: #1e293b;
+  --color-sage: #3b82f6;
+  --color-leaf: #60a5fa;
+  color-scheme: dark;
+  color: var(--color-ink);
+  background-color: var(--color-cream);
+}
+
+/* Warna literal yang dipakai komponen POS. Selector atribut dipakai agar
+   tidak perlu meng-escape nama kelas arbitrary Tailwind. */
+[data-pos-theme='dark'] [class~='bg-[#f9f9f9]'],
+[data-pos-theme='dark'] [class~='bg-[#f7f3ea]'] {
+  background-color: #121215;
+}
+
+[data-pos-theme='dark'] [class~='bg-[#ededed]'],
+[data-pos-theme='dark'] [class~='bg-[#F0F0F0]'] {
+  background-color: #27272a;
+}
+
+[data-pos-theme='dark'] [class~='bg-[#e6e2d9]'],
+[data-pos-theme='dark'] [class~='hover:bg-[#e6e2d9]']:hover {
+  background-color: #3f3f46;
+}
+
+[data-pos-theme='dark'] [class~='bg-[#f5e8c8]'] {
+  background-color: #2e2617;
+}
+
+[data-pos-theme='dark'] [class~='border-[#c4c7c7]'] {
+  border-color: #27272a;
+}
+
+[data-pos-theme='dark'] [class~='border-[#f4f4f4]'] {
+  border-color: #27272a;
+}
+
+[data-pos-theme='dark'] [class~='text-[#ba1a1a]'] {
+  color: #f87171;
+}
+
+[data-pos-theme='dark'] [class~='text-[#9a6b2f]'] {
+  color: #fbbf24;
+}
+
+[data-pos-theme='dark'] [class~='border-[#ba1a1a]/30'] {
+  border-color: rgb(248 113 113 / 0.3);
+}
+
+[data-pos-theme='dark'] [class~='border-[#ba1a1a]/40'] {
+  border-color: rgb(248 113 113 / 0.4);
+}
+
+[data-pos-theme='dark'] [class~='border-[#9a6b2f]/40'] {
+  border-color: rgb(251 191 36 / 0.35);
+}
+
+[data-pos-theme='dark'] [class~='bg-[#b8cda9]/30'],
+[data-pos-theme='dark'] [class~='bg-[#b8cda9]/40'],
+[data-pos-theme='dark'] [class~='bg-[#b8cda9]/50'] {
+  background-color: rgb(59 130 246 / 0.15);
+}
+
+[data-pos-theme='dark'] [class~='bg-[#ba1a1a]/10'] {
+  background-color: rgb(239 68 68 / 0.12);
+}
+
+[data-pos-theme='dark'] [class~='bg-[#ba1a1a]/15'] {
+  background-color: rgb(239 68 68 / 0.16);
+}
+
+[data-pos-theme='dark'] [class~='bg-[#ba1a1a]/20'] {
+  background-color: rgb(239 68 68 / 0.22);
+}
+
+[data-pos-theme='dark'] [class~='bg-[#ba1a1a]'] {
+  color: #fff;
+}
+
+[data-pos-theme='dark'] [class~='bg-white/20'] {
+  background-color: rgb(255 255 255 / 0.1);
+}
+
+[data-pos-theme='dark'] [class~='bg-stone/15'] {
+  background-color: rgb(255 255 255 / 0.08);
+}
+
+[data-pos-theme='dark'] [class~='bg-stone/20'] {
+  background-color: rgb(255 255 255 / 0.12);
+}
+
+[data-pos-theme='dark'] [class~='bg-clay/50'],
+[data-pos-theme='dark'] [class~='bg-clay/60'] {
+  background-color: #3f3f46;
+}
+
+[data-pos-theme='dark'] [class~='bg-cream/40'] {
+  background-color: rgb(255 255 255 / 0.03);
+}
+
+[data-pos-theme='dark'] [class~='border-clay/40'] {
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+[data-pos-theme='dark'] [class~='border-clay/50'] {
+  border-color: rgb(255 255 255 / 0.15);
+}
+
+[data-pos-theme='dark'] [class~='border-clay/60'] {
+  border-color: rgb(255 255 255 / 0.2);
+}
+
+/* Pratinjau struk harus tetap menyerupai kertas putih, termasuk saat dark. */
+[data-pos-theme='dark'] .pos-receipt-surface {
+  --color-white: #ffffff;
+  --color-black: #111111;
+  --color-cream: #fdf9f0;
+  --color-paper: #f9f9f9;
+  --color-sand: #ece8df;
+  --color-clay: #d2c4ba;
+  --color-stone: #5e5e5b;
+  --color-muted: #5e5e5b;
+  --color-ink: #1a2816;
+  --color-soil: #4e453d;
+  color-scheme: light;
+}
+
+[data-pos-theme='dark'] .pos-receipt-surface [class~='hover:bg-[#e6e2d9]']:hover {
+  background-color: #e6e2d9;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background: #d0ccc8;
+  background: #ffffff;
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }

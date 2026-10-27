@@ -197,6 +197,66 @@ export const api = {
   getAnalyticsDashboard: (period?: string) => request<Record<string, unknown>>(`/api/analytics/dashboard${period ? `?period=${period}` : ''}`),
   getAnalyticsSales: (period?: string) => request<Record<string, unknown>>(`/api/analytics/sales${period ? `?period=${period}` : ''}`),
 
+  // Wallet & Payouts (Akun DOKU Individu)
+  getWallet: () =>
+    request<{
+      wallet: {
+        id: number
+        availableBalance: number
+        pendingBalance: number
+        bankCode?: string | null
+        bankAccount?: string | null
+        accountName?: string | null
+        isBankVerified: boolean
+        bankVerifiedAt?: string | null
+        autoPayoutEnabled: boolean
+        payoutFrequency: string
+        payoutDay?: number | null
+        minimumPayout: number
+        holdMinBalance: number
+      }
+      transactions: Array<{
+        id: number
+        type: string
+        amount: number
+        balanceBefore: number
+        balanceAfter: number
+        referenceId?: string | null
+        description?: string | null
+        createdAt: string
+      }>
+      payouts: Array<{
+        id: number
+        requestNumber: string
+        source: string
+        amount: number
+        bankCode: string
+        bankAccount: string
+        accountName: string
+        status: string
+        rejectionReason?: string | null
+        bankRefNumber?: string | null
+        proofImageUrl?: string | null
+        createdAt: string
+        processedAt?: string | null
+      }>
+    }>('/api/wallet'),
+  verifyBankAccount: (payload: { bankCode: string; bankAccount: string }) =>
+    request<{ message: string; bank: { bankCode: string; bankAccount: string; accountName: string; isBankVerified: boolean } }>(
+      '/api/wallet/verify-bank',
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+  updateWalletSettings: (payload: { autoPayoutEnabled?: boolean; payoutFrequency?: string; payoutDay?: number | null; minimumPayout?: number; holdMinBalance?: number }) =>
+    request<{ message: string; settings: unknown }>('/api/wallet/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  requestPayout: (amount: number) =>
+    request<{ message: string; payout: unknown }>('/api/wallet/payout', {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    }),
+
   // Helper to map backend numeric IDs to frontend string ids
   toFrontendId: (prefix: string, n: number | string) => `${prefix}-${String(n)}`,
   toBackendId: (id: string) => {

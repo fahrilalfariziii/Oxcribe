@@ -54,6 +54,11 @@ function parseData(e: Event): unknown {
 }
 
 export function subscribeStream(opts: SubscribeOptions): () => void {
+  // Jangan inisialisasi EventSource jika tidak ada token sama sekali untuk mencegah loop 400 Bad Request
+  if (!opts.token && !opts.qrToken && !opts.tableToken) {
+    return () => {}
+  }
+
   const params = new URLSearchParams()
   if (opts.token) params.set('token', opts.token)
   if (opts.qrToken) params.set('qrToken', opts.qrToken)

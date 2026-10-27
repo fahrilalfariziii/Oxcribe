@@ -10,6 +10,7 @@ import { ingredientsRouter } from "./ingredients.routes";
 import { analyticsRouter } from "./analytics.routes";
 import { publicRouter } from "./public.routes";
 import { platformRouter } from "./platform.routes";
+import { walletRouter } from "./wallet.routes";
 
 export const apiRouter = Router();
 
@@ -19,6 +20,7 @@ apiRouter.use("/public", publicRouter);
 // ---- Butuh login (Frontoffice: kasir/barista, BackOffice: owner) ----
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/business", businessRouter);
+apiRouter.use("/wallet", walletRouter);
 apiRouter.use("/staff", staffRouter);
 apiRouter.use("/tables", tablesRouter);
 apiRouter.use("/categories", categoriesRouter);

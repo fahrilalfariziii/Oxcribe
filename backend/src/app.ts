@@ -32,6 +32,7 @@ export function createApp() {
   const authOrigins = getCorsOrigins();
   app.use("/api/auth", cors({ origin: authOrigins, credentials: true }));
   app.use("/api/business", cors({ origin: authOrigins, credentials: true }));
+  app.use("/api/wallet", cors({ origin: authOrigins, credentials: true }));
   app.use("/api/staff", cors({ origin: authOrigins, credentials: true }));
   app.use("/api/tables", cors({ origin: authOrigins, credentials: true }));
   app.use("/api/categories", cors({ origin: authOrigins, credentials: true }));

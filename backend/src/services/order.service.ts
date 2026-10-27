@@ -6,6 +6,7 @@ import { calcPlatformFee, estimateMdrFee } from "../lib/platform-fee";
 import { FEATURES, getBusinessFeatures, isFeatureOn } from "../lib/feature-gate";
 import { nextOrderNumber } from "./order-number.service";
 import { expireDokuQris } from "./doku.service";
+import { creditOrderInflow } from "./wallet.service";
 import {
   emitNewOrder,
   emitOrderStatusUpdate,
@@ -348,6 +349,25 @@ export async function markOrderPaid(
           },
         }),
   ]);
+
+  // Jika pembayaran non-tunai (DOKU QRIS / VA), kreditkan dana bersih ke internal wallet kafe
+  if (order.paymentMethod !== "cash") {
+    try {
+      const gross = Number(order.total);
+      const platformFee = Number(order.platformFee ?? 0);
+      const mdrFee = Number(order.mdrFee ?? 0);
+      const netAmount = Math.max(0, gross - platformFee - mdrFee);
+
+      await creditOrderInflow({
+        businessId,
+        netAmount,
+        orderNumber: order.orderNumber,
+        description: `Pendapatan non-tunai pesanan #${order.orderNumber} (Gross Rp ${gross.toLocaleString("id-ID")})`,
+      });
+    } catch (e) {
+      console.error(`[wallet] Gagal mengkredit order #${order.orderNumber} ke wallet:`, e);
+    }
+  }
 
   emitOrderPaymentUpdate(businessId, updatedOrder);
   return updatedOrder;
