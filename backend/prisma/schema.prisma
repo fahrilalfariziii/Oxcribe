@@ -2,7 +2,8 @@
 // Semua tabel operasional punya business_id agar SaaS-ready di masa depan.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters", "queryCompiler"]
 }
 
 datasource db {
