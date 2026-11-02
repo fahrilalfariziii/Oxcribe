@@ -1,9 +1,0 @@
-{
-  // Config untuk menjalankan backend Express hasil build tsc di runtime Deno,
-  // pola yang dipakai Deno Deploy (run: deno task start).
-  // Dev lokal tetap via Node: npm run dev --workspace=servopay-backend (dari root).
-  // Config build Deno Deploy ada di deno.json repo root (mono-repo belum didukung).
-  "tasks": {
-    "start": "deno run -A dist/index.js"
-  }
-}

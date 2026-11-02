@@ -61,7 +61,19 @@ async function processScheduledPayouts() {
 }
 
 /**
+ * Dua pekerjaan harian: settlement saldo H+1 dan auto-payout terjadwal.
+ * Dipanggil oleh Vercel Cron (GET /api/cron, guard CRON_SECRET) di production,
+ * dan oleh startScheduler() di dev lokal / hosting Node tradisional.
+ */
+export async function runDailyJobs(): Promise<void> {
+  await settleAllPendingBalances();
+  await processScheduledPayouts();
+}
+
+/**
  * Inisialisasi scheduler interval di backend (setiap 1 jam mengecek cron jobs).
+ * Catatan: di Vercel Functions tidak ada proses yang hidup terus-menerus,
+ * penjadwalan production digantikan Vercel Cron -> /api/cron (app.ts).
  */
 export function startScheduler() {
   console.log("[scheduler] Memulai cron worker (Settlement & Auto-Payout)...");
@@ -69,8 +81,7 @@ export function startScheduler() {
   // Jalankan pengecekan pertama setelah 30 detik server start
   setTimeout(async () => {
     try {
-      await settleAllPendingBalances();
-      await processScheduledPayouts();
+      await runDailyJobs();
     } catch (e) {
       console.error("[scheduler] Error pada initial run:", e);
     }
@@ -83,8 +94,7 @@ export function startScheduler() {
       // Jalankan settlement dan auto-payout setiap pergantian hari jam 00:xx - 01:xx
       if (now.getHours() === 1) {
         console.log("[scheduler] Menjalankan settlement harian dan auto-payout...");
-        await settleAllPendingBalances();
-        await processScheduledPayouts();
+        await runDailyJobs();
       }
     } catch (e) {
       console.error("[scheduler] Error interval scheduler:", e);

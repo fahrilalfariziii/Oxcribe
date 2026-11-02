@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { apiRouter } from "./routes";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
+import { runDailyJobs } from "./lib/scheduler";
 
 function getCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN;
@@ -51,8 +52,27 @@ export function createApp() {
       status: "ok",
       service: "oxcribe-backend",
       time: new Date().toISOString(),
-      build: "2026-09-12-no-vercel",
+      build: "2026-11-03-vercel",
     });
+  });
+
+  // Cron harian: Vercel Cron memanggil GET /api/cron dan otomatis menyertakan
+  // header "Authorization: Bearer <CRON_SECRET>" bila env CRON_SECRET ter-set.
+  // Tanpa CRON_SECRET ter-set, endpoint selalu 401 (fail-closed).
+  app.get("/api/cron", async (req, res) => {
+    const secret = (process.env.CRON_SECRET || "").trim();
+    const auth = req.headers.authorization || "";
+    if (!secret || auth !== `Bearer ${secret}`) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    try {
+      await runDailyJobs();
+      res.json({ ok: true, ranAt: new Date().toISOString() });
+    } catch (e) {
+      console.error("[cron] pekerjaan harian gagal:", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "pekerjaan harian gagal" });
+    }
   });
 
   app.use("/api", apiRouter);
