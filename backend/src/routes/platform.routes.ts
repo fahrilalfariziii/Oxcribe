@@ -76,7 +76,8 @@ platformRouter.post(
     res.cookie("platform_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      // Deno Deploy & Vercel beda domain, jadi production butuh SameSite=None
+      sameSite: process.env.NODE_ENV === "production" ? ("none" as const) : "strict",
       maxAge,
       path: "/",
     });
