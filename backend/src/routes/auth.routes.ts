@@ -56,7 +56,8 @@ authRouter.post(
     res.cookie("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      // Deno Deploy & Vercel beda domain, jadi production butuh SameSite=None
+      sameSite: process.env.NODE_ENV === "production" ? ("none" as const) : "strict",
       maxAge,
       path: "/",
     });
@@ -115,7 +116,8 @@ authRouter.post(
     res.cookie("token", newToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      // Sama seperti login di atas: cross-site cookie untuk production
+      sameSite: process.env.NODE_ENV === "production" ? ("none" as const) : "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });

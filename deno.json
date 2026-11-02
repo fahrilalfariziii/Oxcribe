@@ -1,0 +1,13 @@
+{
+  // Dibaca Deno Deploy saat aplikasi dibuat dari repo GitHub ini. Build dari GitHub
+  // belum mendukung subdirektori (app folder), jadi config deploy harus di repo root
+  // dan command dijalankan dari root memakai flag npm --workspace.
+  "deploy": {
+    "install": "npm install --include=dev",
+    "build": "npm run build --workspace=servopay-backend",
+    "runtime": {
+      "type": "dynamic",
+      "entrypoint": "backend/dist/index.js"
+    }
+  }
+}
