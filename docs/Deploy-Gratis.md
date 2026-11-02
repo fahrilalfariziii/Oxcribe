@@ -349,7 +349,7 @@ Import repo yang sama, Root Directory = `apps/admin`, env var:
 
 Ketiga frontend memakai React Router (`BrowserRouter`), jadi refresh di URL dalam
 (mis. `/backoffice/dashboard` atau `/order/<token>`) akan 404 tanpa rewrite. Untuk tiap
-project di atas, buat file `vercel.json` di dalam folder masing-masing
+project di atas, perlu file `vercel.json` di dalam folder masing-masing
 (`apps/web-app/vercel.json`, `apps/landing-page/vercel.json`, `apps/admin/vercel.json`)
 isinya:
 
@@ -359,7 +359,8 @@ isinya:
 }
 ```
 
-Commit dan push; Vercel akan redeploy otomatis.
+Kabar baik: ketiga file itu **sudah ada di branch ini** (commit `fix: vercel routes`),
+jadi langkah ini untuk yang belum punya, misalnya saat menambah app baru.
 
 ## 6. (E) Menyambungkan backend dan frontend (cross-site)
 
