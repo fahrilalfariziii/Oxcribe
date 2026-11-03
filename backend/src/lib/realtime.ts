@@ -23,7 +23,10 @@ type BufferedEntry = { id: number; type: RealtimeEventType; data: unknown };
 type Subscriber = { res: Response; businessId: number; lastSentId: number; heartbeat: NodeJS.Timeout };
 
 const CHANNEL = "oxcribe:realtime";
+const SEQ_KEY = "oxcribe:realtime:seq";
+const BUFFER_PREFIX = "oxcribe:realtime:buffer:";
 const BUFFER_PER_BUSINESS = 50;
+const BUFFER_TTL_SECONDS = 24 * 60 * 60;
 const HEARTBEAT_MS = 25000;
 
 const subscribers = new Set<Subscriber>();
@@ -79,6 +82,49 @@ function pushBuffer(businessId: number, entry: BufferedEntry) {
   buffers.set(businessId, list);
 }
 
+/**
+ * Simpan entry ke replay buffer Redis (dipakai mode REDIS_URL). Terbaru di
+ * index 0; LTRIM sisakan BUFFER_PER_BUSINESS entri; TTL agar key mati sendiri.
+ */
+async function writeBuffer(
+  pub: RedisClientType,
+  businessId: number,
+  entry: BufferedEntry,
+): Promise<void> {
+  const key = `${BUFFER_PREFIX}${businessId}`;
+  await pub.lPush(key, JSON.stringify(entry));
+  await pub.lTrim(key, 0, BUFFER_PER_BUSINESS - 1);
+  await pub.expire(key, BUFFER_TTL_SECONDS);
+}
+
+/**
+ * Baca replay buffer untuk satu business. Mode Redis: dari Redis list
+ * (urutkan kembali lama -> baru). Mode in-process / Redis gagal: memory.
+ */
+async function readBuffer(businessId: number): Promise<BufferedEntry[]> {
+  if (redisPub) {
+    try {
+      const raw = await redisPub.lRange(
+        `${BUFFER_PREFIX}${businessId}`,
+        0,
+        BUFFER_PER_BUSINESS - 1,
+      );
+      return raw
+        .reverse()
+        .flatMap((line) => {
+          try {
+            return [JSON.parse(line) as BufferedEntry];
+          } catch {
+            return [];
+          }
+        });
+    } catch (e) {
+      console.error("[realtime:redis] read buffer gagal, fallback memory:", e);
+    }
+  }
+  return buffers.get(businessId) ?? [];
+}
+
 function deliverLocal(businessId: number, type: RealtimeEventType, data: unknown, id?: number) {
   const entry: BufferedEntry = { id: id ?? ++seq, type, data };
   if (id !== undefined && id > seq) seq = id;
@@ -97,16 +143,23 @@ function deliverLocal(businessId: number, type: RealtimeEventType, data: unknown
 }
 
 function publish(businessId: number, type: RealtimeEventType, data: unknown) {
-  if (redisPub) {
-    // Echo Redis kembali ke instance ini juga, jadi JANGAN deliverLocal langsung (anti dobel).
-    const id = ++seq;
-    redisPub.publish(CHANNEL, JSON.stringify({ businessId, type, data, id })).catch((e) => {
-      console.error("[realtime:redis] publish gagal, fallback lokal:", e);
-      deliverLocal(businessId, type, data);
-    });
+  if (!redisPub) {
+    deliverLocal(businessId, type, data);
     return;
   }
-  deliverLocal(businessId, type, data);
+  const pub = redisPub;
+  // Id global via INCR supaya konsisten lintas instance serverless (tiap
+  // instance punya memori sendiri), replay buffer disimpan di Redis list,
+  // lalu event dibroadcast via pub/sub. Echo Redis mengembalikan event ke
+  // instance ini juga, jadi JANGAN deliverLocal langsung (anti dobel).
+  void (async () => {
+    const id = await pub.incr(SEQ_KEY);
+    await writeBuffer(pub, businessId, { id, type, data });
+    await pub.publish(CHANNEL, JSON.stringify({ businessId, type, data, id }));
+  })().catch((e) => {
+    console.error("[realtime:redis] publish gagal, fallback lokal:", e);
+    deliverLocal(businessId, type, data);
+  });
 }
 
 async function resolveBusinessId(query: Record<string, unknown>): Promise<number> {
@@ -195,8 +248,10 @@ export async function handleStream(req: Request, res: Response): Promise<void> {
   (req.socket as unknown as { setTimeout?: (ms: number) => void }).setTimeout?.(0);
   subscribers.add(sub);
 
-  // Replay event yang terlewat saat reconnect
-  for (const entry of buffers.get(businessId) ?? []) {
+  // Replay event yang terlewat saat reconnect (buffer Redis; fallback memory
+  // pada mode in-process atau saat Redis sedang gagal)
+  const history = await readBuffer(businessId);
+  for (const entry of history) {
     if (entry.id <= sub.lastSentId) continue;
     try {
       res.write(`id: ${entry.id}\nevent: ${entry.type}\ndata: ${JSON.stringify(entry.data ?? null)}\n\n`);

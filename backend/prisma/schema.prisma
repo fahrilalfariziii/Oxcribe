@@ -2,12 +2,15 @@
 // Semua tabel operasional punya business_id agar SaaS-ready di masa depan.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters", "queryCompiler"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // DIRECT_URL (tanpa -pooler) dipakai prisma migrate deploy & prisma studio
+  directUrl  = env("DIRECT_URL")
 }
 
 model Business {
