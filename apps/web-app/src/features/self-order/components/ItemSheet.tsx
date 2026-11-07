@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CartItem, Product } from '../../../shared/types'
 import { normalizeTheme } from '../../../shared/types'
 import { useCafe } from '../../../mock/store'
@@ -40,6 +40,13 @@ export function ItemSheet({ item, onClose, onAdd }: Props) {
   const { business } = useCafe()
   const theme = normalizeTheme(business.theme)
   const groups = groupOptions(item)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    dialog.showModal()
+    return () => dialog.close()
+  }, [])
   const [qty, setQty] = useState(1)
   const [selected, setSelected] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
@@ -82,25 +89,26 @@ export function ItemSheet({ item, onClose, onAdd }: Props) {
   }
 
   return (
-    /* Overlay Fixed yang menutupi layar & terpusat secara horizontal */
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
-      {/* Kontainer Sheet yang dibatasi max-w-md agar presisi di layar besar */}
+    <dialog ref={dialogRef} aria-labelledby="self-order-item-title"
+      onCancel={(event) => { event.preventDefault(); onClose() }}
+      onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+      className="self-order-sheet fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[90dvh] w-full max-w-md overflow-hidden rounded-t-[20px] p-0 shadow-2xl backdrop:bg-black/50">
       <div
-        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-t-[20px] shadow-2xl transition-all"
+        className="flex max-h-[90dvh] flex-col"
         style={{ background: theme.pageBg }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-clay/20 px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-clay/20 px-5 py-3">
           <div>
-            <p className="font-display text-[20px] font-semibold text-ink">{item.name}</p>
+            <h2 id="self-order-item-title" className="font-display text-[20px] font-semibold text-ink">{item.name}</h2>
             <p className="text-sm font-semibold text-soil">{formatRupiah(item.price)}</p>
           </div>
-          <button className="flex size-10 items-center justify-center text-2xl leading-none text-soil" onClick={onClose} aria-label="Tutup">
+          <button type="button" className="flex size-11 shrink-0 items-center justify-center text-2xl leading-none text-soil" onClick={onClose} aria-label="Tutup pilihan menu">
             ×
           </button>
         </div>
 
-        <div className="overflow-y-auto px-5 py-5 scrollbar-hide">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-5">
           <div className="flex flex-col gap-6">
             {groups.map((g) =>
               g.type === 'addon' ? (
@@ -112,6 +120,7 @@ export function ItemSheet({ item, onClose, onAdd }: Props) {
                       <button
                         key={opt.id}
                         type="button"
+                        aria-pressed={checked}
                         onClick={() =>
                           setAddons((prev) => (prev.includes(opt.id) ? prev.filter((x) => x !== opt.id) : [...prev, opt.id]))
                         }
@@ -141,9 +150,10 @@ export function ItemSheet({ item, onClose, onAdd }: Props) {
                         <button
                           key={opt.id}
                           type="button"
+                          aria-pressed={active}
                           onClick={() => setSelected((s) => ({ ...s, [g.type]: opt.id }))}
                           style={active ? { borderColor: theme.accent, background: `${theme.accent}26`, color: theme.primary } : undefined}
-                          className={`rounded-full px-[18px] py-[10px] text-sm ${
+                          className={`min-h-11 rounded-lg px-4 py-2 text-sm ${
                             active
                               ? 'border-2 font-medium'
                               : 'border border-clay/30 bg-[#eee] text-soil'
@@ -164,15 +174,15 @@ export function ItemSheet({ item, onClose, onAdd }: Props) {
           </div>
         </div>
 
-        <div className="border-t border-clay/20 px-5 py-5" style={{ background: theme.pageBg }}>
-          <div className="mb-4 flex items-center justify-between">
+        <div className="shrink-0 border-t border-clay/20 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" style={{ background: theme.pageBg }}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <p className="font-display text-[20px] font-semibold">Total: {formatRupiah(unitPrice * qty)}</p>
-            <div className="flex h-10 items-center rounded-full border border-clay/30 bg-[#eee]">
-              <button className="flex h-full w-10 items-center justify-center" onClick={() => setQty((q) => Math.max(1, q - 1))}>
+            <div className="flex h-11 items-center rounded-full border border-clay/30 bg-[#eee]">
+              <button type="button" aria-label="Kurangi jumlah" disabled={qty === 1} className="flex h-full w-11 items-center justify-center disabled:opacity-40" onClick={() => setQty((q) => Math.max(1, q - 1))}>
                 –
               </button>
               <span className="flex h-full w-8 items-center justify-center border-x border-[#bcbcbc]/70 text-center font-bold">{qty}</span>
-              <button className="flex h-full w-10 items-center justify-center" onClick={() => setQty((q) => q + 1)}>
+              <button type="button" aria-label="Tambah jumlah" className="flex h-full w-11 items-center justify-center" onClick={() => setQty((q) => q + 1)}>
                 <IconPlus color="#4E453D" />
               </button>
             </div>
@@ -182,6 +192,6 @@ export function ItemSheet({ item, onClose, onAdd }: Props) {
           </Button>
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }

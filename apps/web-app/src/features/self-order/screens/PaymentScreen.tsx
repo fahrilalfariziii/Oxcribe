@@ -7,7 +7,7 @@ import { platformFeeLabel } from '../../../shared/lib/fees'
 import { Button } from '../../../shared/components/ui'
 import { IconBack } from '../../../shared/components/icons'
 import { useCafe } from '../../../mock/store'
-import { subscribeStream } from '../../../lib/stream'
+import { PaymentStatusNotice } from '../components/PaymentStatusNotice'
 
 type GatewayData = {
   qrContent?: string
@@ -23,7 +23,6 @@ type GatewayData = {
 
 interface Props {
   order: Order & { payments?: Array<{ gatewayData?: GatewayData }> }
-  qrToken?: string
   onBack: () => void
   onConfirm: () => void
   /** Muat status percobaan QRIS yang tersimpan di server. */
@@ -96,13 +95,13 @@ function useCountdown(expiry?: string) {
   return text
 }
 
-export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onChangeMethod }: Props) {
+export function PaymentScreen({ order: liveOrder, onBack, onConfirm, onRetry, onChangeMethod }: Props) {
   const { refreshOrderFromBackend, business } = useCafe()
   const theme = normalizeTheme(business.theme)
-  const [liveOrder, setLiveOrder] = useState<Order>(order)
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
   const [qrZoom, setQrZoom] = useState(false)
+  const qrDialogRef = useRef<HTMLDialogElement>(null)
   const [downloading, setDownloading] = useState(false)
   const [payNotice, setPayNotice] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
@@ -120,6 +119,10 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
     setPayNotice(null)
     try {
       const updated = await refreshOrderFromBackend(liveOrder.clientOrderId)
+      if (!updated) {
+        setPayNotice('Status belum bisa diperiksa. Periksa koneksi lalu coba lagi.')
+        return
+      }
       if (updated && updated.paymentStatus === 'paid') {
         onConfirm()
         return
@@ -202,62 +205,9 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
       setChangingMethod(false)
     }
   }
-  useEffect(() => setLiveOrder(order), [order])
-  // Poll BE status + socket for settlement & pembatalan kasir
   useEffect(() => {
-    let cancelled = false
-    let timer: number | undefined
-    const poll = async () => {
-      try {
-        const updated = await refreshOrderFromBackend(liveOrder.clientOrderId)
-        if (cancelled) return
-        if (updated) {
-          setLiveOrder(updated)
-          if ((updated as Order).status === 'batal' || (updated as Order).paymentStatus === 'canceled') {
-            setPayNotice('Pesanan ini dibatalkan oleh kasir. Silakan buat pesanan baru atau kembali.')
-            return
-          }
-          if (updated.paymentStatus === 'paid') {
-            onConfirm()
-            return
-          }
-        }
-      } catch {}
-      timer = window.setTimeout(poll, 5000)
-    }
-    // Start poll after 3s
-    timer = window.setTimeout(poll, 3000)
-    // SSE untuk settlement realtime + pembatalan kasir
-    let cleanup: (() => void) | undefined
-    try {
-      const handler = (payload: unknown) => {
-        const p = payload as { clientOrderId?: string; paymentStatus?: string }
-        if (p?.clientOrderId === liveOrder.clientOrderId && p?.paymentStatus === 'paid') onConfirm()
-      }
-      const statusHandler = (payload: unknown) => {
-        const p = payload as { clientOrderId?: string; status?: string }
-        if (p?.clientOrderId !== liveOrder.clientOrderId || p?.status !== 'batal') return
-        refreshOrderFromBackend(liveOrder.clientOrderId)
-          .then((updated) => {
-            if (updated) {
-              setLiveOrder(updated)
-              setPayNotice('Pesanan ini dibatalkan oleh kasir. Silakan buat pesanan baru atau kembali.')
-            }
-          })
-          .catch(() => {})
-      }
-      cleanup = subscribeStream({
-        qrToken,
-        clientOrderId: liveOrder.clientOrderId,
-        handlers: { 'order:payment_updated': handler, 'order:status_updated': statusHandler },
-      })
-    } catch {}
-    return () => {
-      cancelled = true
-      if (timer) window.clearTimeout(timer)
-      if (cleanup) cleanup()
-    }
-  }, [liveOrder.clientOrderId, refreshOrderFromBackend, onConfirm, liveOrder, qrToken])
+    if (liveOrder.paymentStatus === 'paid') onConfirm()
+  }, [liveOrder.paymentStatus, onConfirm])
 
   const methodLabel = liveOrder.paymentMethod === 'qris' ? 'QRIS' : liveOrder.paymentMethod === 'bank_transfer' ? 'Transfer Bank' : 'Tunai'
   const isCancelled = (liveOrder as Order).status === 'batal' || (liveOrder as Order).paymentStatus === 'canceled'
@@ -279,6 +229,13 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
   const qrValue = gatewayData?.qrContent || gatewayData?.qrString
   const nmid = extractNmid(qrValue)
   const hasQr = Boolean(qrValue || gatewayData?.qrUrl)
+  const showQrZoom = qrZoom && hasQr && !isCancelled && liveOrder.paymentStatus !== 'failed'
+  useEffect(() => {
+    const dialog = qrDialogRef.current
+    if (!showQrZoom || !dialog) return
+    dialog.showModal()
+    return () => dialog.close()
+  }, [showQrZoom])
 
   return (
     <div className="flex h-full flex-col" style={{ background: theme.pageBg }}>
@@ -286,7 +243,8 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
         <button onClick={onBack} className="absolute left-5 size-12" aria-label="Kembali"><IconBack /></button>
         <span className="font-display text-xl font-semibold">Pembayaran</span>
       </header>
-      <div className="flex-1 overflow-y-auto px-5 py-6 pb-32 scrollbar-hide">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5 scrollbar-hide">
+        <PaymentStatusNotice order={liveOrder} />
         {isCancelled && (
           <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-[#ba1a1a]/40 bg-[#ba1a1a]/10 p-4">
             <span className="material-symbols-outlined text-[20px] text-[#ba1a1a]">cancel</span>
@@ -316,7 +274,7 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
           <p className="rounded-[12px] p-4 text-sm text-ink" style={{ background: `${theme.accent}33` }}>Silakan bayar di kasir.</p>
         )}
 
-        {liveOrder.paymentMethod === 'qris' && (
+        {liveOrder.paymentMethod === 'qris' && !isCancelled && liveOrder.paymentStatus !== 'failed' && (
           <div className="overflow-hidden rounded-[12px] border border-[#e2e2e2] bg-white text-center shadow-sm">
             {/* Header standar QRIS */}
             <div className="px-5 pb-3 pt-4" style={{ background: '#C4161C' }}>
@@ -332,7 +290,7 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
                 {qrValue ? (
                   <button type="button" onClick={() => setQrZoom(true)} title="Ketuk untuk perbesar" aria-label="Perbesar QRIS">
                     <div ref={qrCanvasRef} className="mx-auto w-fit border-2 border-clay p-2 rounded-lg bg-white">
-                      <QRCodeCanvas value={qrValue} size={264} />
+                      <QRCodeCanvas value={qrValue} size={240} className="max-w-full !h-auto" />
                     </div>
                   </button>
                 ) : (
@@ -352,7 +310,8 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
               </div>
             ) : (
               <div className="mx-auto mt-3 max-w-[240px]">
-                <p className="text-sm font-semibold text-black">QR belum terbit dari DOKU</p>
+                {(retrying || gatewayData?.chargeAttemptStatus === 'creating') && <div aria-hidden="true" className="self-order-skeleton mx-auto mb-3 aspect-square w-28 rounded-xl bg-clay/40" />}
+                <p role="status" className="text-sm font-semibold text-black">{gatewayData?.chargeAttemptStatus === 'creating' ? 'Menyiapkan QRIS…' : 'QR belum terbit dari DOKU'}</p>
                 <p className="mt-1 text-xs text-soil">{gatewayData?.chargeMessage || 'Pesanan tersimpan. Muat status pembayaran untuk memeriksa QR yang diterbitkan server.'}</p>
                 {retryError && <p className="mt-2 text-xs font-medium text-[#ba1a1a]">{retryError}</p>}
                 <button
@@ -378,9 +337,9 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
           <p className="rounded-lg border border-clay bg-white p-4 text-sm text-soil">Metode pembayaran pesanan lama ini tidak lagi tersedia. Hubungi kasir untuk memeriksa statusnya.</p>
         )}
       </div>
-      <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-2 border-t border-clay/10 px-5 pb-6 pt-4" style={{ background: theme.pageBg }}>
+      <div className="flex shrink-0 flex-col gap-2 border-t border-clay/20 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" style={{ background: theme.pageBg }}>
         {payNotice && (
-          <p className="rounded-[12px] border border-[#9a6b2f]/40 bg-[#f5e8c8] px-4 py-3 text-xs font-medium text-black">{payNotice}</p>
+          <p role="status" className="rounded-[12px] border border-[#9a6b2f]/40 bg-[#f5e8c8] px-4 py-3 text-xs font-medium text-black">{payNotice}</p>
         )}
         {isCancelled ? (
           <Button className="h-12 w-full rounded-[8px]" style={{ background: theme.primary }} onClick={onBack}>
@@ -388,7 +347,7 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
           </Button>
         ) : (
           <>
-            <Button className="h-12 w-full rounded-[8px]" style={{ background: theme.primary }} onClick={handleCheckStatus}>
+            <Button className="h-12 w-full rounded-[8px]" style={{ background: theme.primary }} onClick={handleCheckStatus} disabled={checking || changingMethod}>
               {checking ? 'Mengecek…' : 'Cek Status Pembayaran'}
             </Button>
             <Button variant="outline" className="h-12 w-full rounded-[8px]" onClick={handleChangeMethod} disabled={changingMethod}>
@@ -397,36 +356,17 @@ export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onCh
           </>
         )}
       </div>
-      {qrZoom && qrValue && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
-          onClick={() => setQrZoom(false)}
+      {showQrZoom && (
+        <dialog ref={qrDialogRef} aria-labelledby="self-order-qr-title"
+          className="self-order-sheet fixed inset-0 m-auto max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-[420px] overflow-y-auto rounded-xl bg-white p-4 text-center backdrop:bg-black/75"
+          onCancel={(event) => { event.preventDefault(); setQrZoom(false) }}
         >
-          <div className="text-center">
-            <div className="mx-auto w-fit overflow-hidden rounded-xl bg-white">
-              <div className="px-6 pb-2 pt-3" style={{ background: '#C4161C' }}>
-                <p className="text-xl font-black italic text-white">QRIS</p>
-              </div>
-              <div className="p-3">
-                <QRCodeCanvas value={qrValue} size={400} />
-              </div>
-            </div>
-            <p className="mt-3 text-sm font-semibold text-white">{business.name || ''} · ketuk untuk tutup</p>
-            <p className="mt-1 font-display text-lg font-bold text-white">{formatRupiah(liveOrder.total)}</p>
-          </div>
-        </div>
-      )}
-      {qrZoom && !qrValue && gatewayData?.qrUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
-          onClick={() => setQrZoom(false)}
-        >
-          <div className="text-center">
-            <img src={gatewayData.qrUrl} alt="QRIS diperbesar" className="mx-auto w-[min(88vw,420px)] rounded-xl bg-white p-3" />
-            <p className="mt-3 text-sm font-semibold text-white">Scan QR ini · ketuk untuk tutup</p>
-            <p className="mt-1 font-display text-lg font-bold text-white">{formatRupiah(liveOrder.total)}</p>
-          </div>
-        </div>
+          <h2 id="self-order-qr-title" className="text-lg font-bold text-ink">Scan QRIS</h2>
+          <p className="mb-3 text-sm text-soil">{business.name} · {formatRupiah(liveOrder.total)}</p>
+          {qrValue ? <QRCodeCanvas value={qrValue} size={400} className="mx-auto max-w-full !h-auto" />
+            : <img src={gatewayData?.qrUrl} alt="QRIS diperbesar" className="mx-auto h-auto max-w-full" />}
+          <button type="button" onClick={() => setQrZoom(false)} className="mt-4 min-h-11 w-full rounded-lg border border-clay px-4 font-semibold text-ink">Tutup QRIS</button>
+        </dialog>
       )}
     </div>
   )

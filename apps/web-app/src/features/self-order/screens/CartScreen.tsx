@@ -81,7 +81,7 @@ export function CartScreen({
         <span className="font-display text-xl font-bold">Keranjang</span>
         <span className="text-sm">Table {tableNumber}</span>
       </header>
-      <div className="flex-1 overflow-y-auto px-5 py-6 pb-48 scrollbar-hide">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 scrollbar-hide">
         <div className="flex flex-col gap-8">
           <section>
             <h2 className="font-display mb-3 text-xl font-semibold">
@@ -100,6 +100,7 @@ export function CartScreen({
                   onName(e.target.value);
                 }}
                 placeholder=" "
+                aria-label="Nama pemesan"
                 required
               />
               <span className="absolute left-4 top-2 text-xs text-soil">
@@ -161,16 +162,17 @@ export function CartScreen({
                   <div className="flex flex-col items-end justify-between shrink-0">
                     {/* Tombol Hapus (Kanan Atas) */}
                     <button
-                      className="text-xs text-soil hover:text-red-500 transition-colors"
+                      className="min-h-11 px-2 text-xs text-soil hover:text-red-700 transition-colors"
                       onClick={() => onUpdateQty(ci.cartId, -ci.quantity)}
                     >
                       Hapus
                     </button>
 
                     {/* Stepper Jumlah (Kanan Bawah) */}
-                    <div className="flex h-8 w-fit items-center rounded-full" style={{ background: `${theme.accent}33` }}>
+                    <div className="flex h-11 w-fit items-center rounded-full" style={{ background: `${theme.accent}33` }}>
                       <button
-                        className="flex size-8 items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label={`Kurangi ${ci.name}`}
+                        className="flex size-11 items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
                         onClick={() => onUpdateQty(ci.cartId, -1)}
                         disabled={ci.quantity <= 1} // Mencegah terhapus jika sisa 1
                       >
@@ -180,7 +182,8 @@ export function CartScreen({
                         {ci.quantity}
                       </span>
                       <button
-                        className="flex size-8 items-center justify-center"
+                        aria-label={`Tambah ${ci.name}`}
+                        className="flex size-11 items-center justify-center"
                         onClick={() => onUpdateQty(ci.cartId, 1)}
                       >
                         <IconPlus color="#1A2816" />
@@ -191,7 +194,7 @@ export function CartScreen({
               )
             })}
 
-            <button onClick={onBack} className="py-2 text-left text-base text-ink font-medium">
+            <button onClick={onBack} className="min-h-11 py-2 text-left text-base text-ink font-medium">
               + Tambah Item Lain
             </button>
           </section>
@@ -206,6 +209,7 @@ export function CartScreen({
                 return (
                 <button
                   key={m.id}
+                  aria-pressed={payMethod === m.id}
                   onClick={() => onPayMethod(m.id)}
                   style={payMethod === m.id ? { borderColor: theme.accent } : undefined}
                   className={`flex items-center justify-between rounded-[8px] border bg-white p-[13px] text-left ${
@@ -268,7 +272,7 @@ export function CartScreen({
           </section>
         </div>
       </div>
-      <div className="fixed bottom-20 left-0 right-0 z-10 mx-auto flex w-full max-w-md items-center justify-between rounded-t-[12px] border-t border-clay/20 bg-white px-4 pb-4 pt-[17px]">
+      <div aria-busy={checkoutPending} className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-clay/20 bg-white px-4 py-3">
       <div>
         <p className="text-xs text-soil">Total Tagihan</p>
         <p className="font-display text-xl font-bold" style={{ color: theme.accent }}>
@@ -281,7 +285,7 @@ export function CartScreen({
         disabled={checkoutPending || cart.length === 0 || !customerName.trim() || !availableMethods.some((m) => m.id === payMethod)}
         onClick={handleCheckout}
       >
-        {checkoutPending ? 'Mengirim Pesanan...' : 'Pesan Sekarang'}
+        {checkoutPending ? 'Mengirim pesanan…' : 'Pesan sekarang'}
       </Button>
     </div>
     </div>

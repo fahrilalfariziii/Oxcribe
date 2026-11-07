@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   clearOrderSessionStorage,
@@ -20,6 +20,7 @@ import { PaymentScreen } from './screens/PaymentScreen'
 import { StatusScreen } from './screens/StatusScreen'
 import { ItemSheet } from './components/ItemSheet'
 import { BottomNav } from './components/BottomNav'
+import { OrderSkeleton } from './components/OrderSkeleton'
 import { subscribeStream } from '../../lib/stream'
 
 type Screen = 'menu' | 'cart' | 'payment' | 'status' | 'history'
@@ -34,10 +35,13 @@ export function SelfOrderApp() {
   // -> invalid; error jaringan -> unknown (fallback tabel lokal agar offline tetap jalan).
   const [serverTable, setServerTable] = useState<{ tableNumber: string; tableId: number } | null>(null)
   const [tableInvalid, setTableInvalid] = useState(false)
+  const [catalogLoading, setCatalogLoading] = useState(Boolean(token))
+  const [catalogRetry, setCatalogRetry] = useState(0)
   // BE-first: fetch catalog/business via qrToken + realtime product availability
   useEffect(() => {
     if (!token) return
     let cancelled = false
+    setCatalogLoading(true)
     fetchCatalogFromBackend(token).then((info) => {
       if (cancelled) return
       if (info) {
@@ -45,7 +49,7 @@ export function SelfOrderApp() {
         setTableInvalid(false)
       } else {
         // Gagal resolve: bedakan 404 (meja salah/nonaktif) vs jaringan via cek langsung
-        api.resolveTable(token).then(
+        return api.resolveTable(token).then(
           () => {
             if (!cancelled) setTableInvalid(false)
           },
@@ -58,11 +62,11 @@ export function SelfOrderApp() {
           },
         )
       }
-    }).catch(() => {})
+    }).catch(() => {}).finally(() => { if (!cancelled) setCatalogLoading(false) })
     return () => {
       cancelled = true
     }
-  }, [token, fetchCatalogFromBackend])
+  }, [token, fetchCatalogFromBackend, catalogRetry])
   // Realtime katalog: socket product:availability_updated + business:updated + polling 12s
   useEffect(() => {
     if (!token) return
@@ -109,6 +113,12 @@ export function SelfOrderApp() {
       : (tableByToken ?? serverTableAsLocal ?? null)
   const [screen, setScreen] = useState<Screen>('menu')
   const [cart, setCart] = useState<CartItem[]>([])
+  const [addedItem, setAddedItem] = useState<{ sequence: number; name: string; quantity: number } | null>(null)
+  const addedSequence = useRef(0)
+  const [restoringOrder, setRestoringOrder] = useState(false)
+  const [staleStatusFor, setStaleStatusFor] = useState<string | null>(null)
+  const restoredSession = useRef(false)
+  const confirmPayment = useCallback(() => setScreen('status'), [])
   const checkoutInFlight = useRef(false)
   const [checkoutPending, setCheckoutPending] = useState(false)
   const [popup, setPopup] = useState<Product | null>(null)
@@ -152,6 +162,8 @@ export function SelfOrderApp() {
     setHistoryIds([])
     setHistoryOwner(null)
     setCustomerName('')
+    setCart([])
+    setAddedItem(null)
     setScreen('menu')
   }
 
@@ -165,6 +177,7 @@ export function SelfOrderApp() {
 
   // Pulihkan pesanan server yang sama setelah halaman dimuat ulang.
   useEffect(() => {
+    if (!restoredSession.current) return
     try {
       const active = orders.find((o) => o.id === activeOrderId)
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ activeOrderId, clientOrderId: active?.clientOrderId, screen, customerName }))
@@ -175,6 +188,7 @@ export function SelfOrderApp() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
+      restoredSession.current = true
       if (!raw) return
       const parsed = JSON.parse(raw) as { activeOrderId?: string; clientOrderId?: string; screen?: string; customerName?: string }
       if (parsed?.customerName && !customerName) setCustomerName(parsed.customerName)
@@ -183,6 +197,7 @@ export function SelfOrderApp() {
       }
       const storedClientId = parsed?.clientOrderId || localStorage.getItem('servopay:activeClientOrderId')
       if (storedClientId && !activeOrder) {
+        setRestoringOrder(true)
         refreshOrderFromBackend(storedClientId).then((updated) => {
           if (updated) {
             notFoundCount.current = 0
@@ -191,7 +206,7 @@ export function SelfOrderApp() {
         }).catch((e: unknown) => {
           // Order basi (DB di-seed ulang / tidak pernah ada di BE): buang + kembali ke menu
           if (isOrderNotFoundError(e)) handleStaleOrder()
-        })
+        }).finally(() => setRestoringOrder(false))
       } else if (parsed?.activeOrderId && !activeOrder) {
         const found = orders.find((o) => o.id === parsed.activeOrderId)
         if (!found && storedClientId) {
@@ -218,15 +233,18 @@ export function SelfOrderApp() {
     if (!activeOrder.id.startsWith('o-')) return
     let iv: number | undefined
     let cancelled = false
-    const poll = async () => {
-      if (cancelled) return
+    let inFlight = false
+    const refresh = async () => {
+      if (cancelled || inFlight) return
+      inFlight = true
       try {
         const updated = await refreshOrderFromBackend(activeOrder.clientOrderId)
-        if (!cancelled && updated) {
-          notFoundCount.current = 0
-          // status akan otomatis ter-update via orders.find(activeOrderId)
+        if (!cancelled) {
+          setStaleStatusFor(updated ? null : activeOrder.id)
+          if (updated) notFoundCount.current = 0
         }
       } catch (e) {
+        if (!cancelled) setStaleStatusFor(activeOrder.id)
         if (isOrderNotFoundError(e) && !cancelled) {
           notFoundCount.current += 1
           if (notFoundCount.current >= 2) {
@@ -237,17 +255,18 @@ export function SelfOrderApp() {
             return
           }
         }
-      }
+      } finally { inFlight = false }
+    }
+    const poll = async () => {
+      await refresh()
       if (!cancelled) iv = window.setTimeout(poll, 5000) as unknown as number
     }
     iv = window.setTimeout(poll, 3000) as unknown as number
     let cleanup: (() => void) | undefined
     try {
       const handler = (payload: unknown) => {
-        const p = payload as { id?: number | string; clientOrderId?: string; status?: string }
-        if (!p) return
-        const match = orders.find((o) => o.clientOrderId === p.clientOrderId || String(p.id) === o.id)
-        if (match) refreshOrderFromBackend(match.clientOrderId).catch(() => {})
+        const p = payload as { clientOrderId?: string } | null
+        if (p?.clientOrderId === activeOrder.clientOrderId) void refresh()
       }
       cleanup = subscribeStream({
         qrToken: token,
@@ -274,6 +293,8 @@ export function SelfOrderApp() {
       },
     ])
     setPopup(null)
+    setAddedItem({ sequence: ++addedSequence.current, name: item.name, quantity: qty })
+    navigator.vibrate?.(18)
   }
 
   function updateQty(cartId: string, delta: number) {
@@ -381,10 +402,15 @@ export function SelfOrderApp() {
     }
   }
 
+  if (catalogLoading && !serverTable) {
+    return <OrderSkeleton label="Memuat menu…" menu />
+  }
+
   if (!table) {
     return (
-      <div className="flex min-h-full items-center justify-center bg-paper px-6 text-center">
-        <p className="text-soil">Meja tidak ditemukan atau sudah tidak aktif.</p>
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-paper px-6 text-center">
+        <p className="text-soil">{tableInvalid ? 'QR meja tidak aktif. Minta bantuan kasir.' : 'Menu belum bisa dimuat. Periksa koneksi lalu coba lagi.'}</p>
+        {!tableInvalid && <button type="button" className="min-h-11 rounded-lg bg-ink px-4 font-semibold text-white" onClick={() => setCatalogRetry((value) => value + 1)}>Muat ulang menu</button>}
       </div>
     )
   }
@@ -405,32 +431,33 @@ export function SelfOrderApp() {
   }
 
   return (
-    <div className="flex min-h-screen w-full justify-center bg-paper sm:bg-[#d0ccc8] sm:py-6">
-      <div className="relative flex h-full min-h-screen w-full max-w-md flex-col overflow-hidden shadow-2xl sm:min-h-[844px] sm:rounded-[24px]" style={{ background: theme.pageBg }}>
-        <main className="flex-1 overflow-y-auto pb-24 scrollbar-hide">
+    <div className="flex h-dvh w-full justify-center bg-paper sm:bg-[#d0ccc8] sm:p-4">
+      <div className="self-order relative flex min-h-0 w-full max-w-md flex-col overflow-hidden shadow-xl sm:rounded-2xl" style={{ background: theme.pageBg }}>
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {orderNotice && (
-            <div className="mx-5 mt-4 flex items-start justify-between gap-3 rounded-[12px] border border-[#ba1a1a]/30 bg-[#ba1a1a]/10 px-4 py-3 text-xs font-medium text-[#ba1a1a]">
+            <div role="alert" className="mx-4 mt-3 flex shrink-0 items-center justify-between gap-2 rounded-xl border border-[#ba1a1a]/30 bg-[#ba1a1a]/10 px-3 text-xs font-medium text-[#ba1a1a]">
               <span>{orderNotice}</span>
               <button
                 onClick={() => setOrderNotice(null)}
-                className="shrink-0 font-bold"
+                className="size-11 shrink-0 font-bold"
                 aria-label="Tutup notifikasi"
               >
                 ✕
               </button>
             </div>
           )}
-          {screen === 'menu' && (
+          <div hidden={screen !== 'menu'} className="self-order-screen min-h-0 flex-1">
             <MenuScreen
               tableNumber={table.tableNumber}
               products={products}
               cart={cart}
+              addedItem={addedItem}
+              visible={screen === 'menu'}
               onSelectItem={setPopup}
-              onUpdateQty={updateQty}
               onGoCart={() => setScreen('cart')}
-              onGoOrder={handleGoOrderTab}
             />
-          )}
+          </div>
+          {screen !== 'menu' && <div key={screen} className="self-order-screen min-h-0 flex-1">
           {screen === 'cart' && (
             <CartScreen
               tableNumber={table.tableNumber}
@@ -448,9 +475,8 @@ export function SelfOrderApp() {
           {screen === 'payment' && activeOrder && (
             <PaymentScreen
               order={activeOrder}
-              qrToken={token}
               onBack={() => setScreen('cart')}
-              onConfirm={() => setScreen('status')}
+              onConfirm={confirmPayment}
               onChangeMethod={async () => {
                 // Batalkan order lama di server,
                 // lalu kembali — checkout berikutnya = order baru.
@@ -473,17 +499,28 @@ export function SelfOrderApp() {
               }}
             />
           )}
-          {screen === 'status' && (
+          {screen === 'status' && activeOrder && (
             <StatusScreen
               order={activeOrder}
               cart={cart}
               tableNumber={table.tableNumber}
               onOrderAgain={() => {
+                setCart([])
+                setAddedItem(null)
+                localStorage.removeItem('servopay:checkoutAttempt')
                 setScreen('menu')
               }}
               onOpenHistory={() => setScreen('history')}
               onEndSession={handleEndSession}
             />
+          )}
+          {(screen === 'payment' || screen === 'status') && !activeOrder && (
+            restoringOrder ? <OrderSkeleton label="Memuat status pesanan…" /> : (
+              <div className="px-5 py-8 text-soil">
+                <p role="status">Status pesanan belum tersedia.</p>
+                <button type="button" onClick={handleGoOrderTab} className="mt-3 min-h-11 rounded-lg border border-clay px-4 font-semibold">Buka pesanan</button>
+              </div>
+            )
           )}
           {screen === 'history' && (
             <div className="flex h-full flex-col px-5 pb-24 pt-6">
@@ -542,7 +579,11 @@ export function SelfOrderApp() {
               </div>
             </div>
           )}
+          </div>}
         </main>
+        {(screen === 'payment' || screen === 'status') && activeOrder && staleStatusFor === activeOrder.id && (
+          <p role="status" className="shrink-0 bg-amber-50 px-4 py-2 text-xs text-amber-950">Koneksi terputus. Menampilkan status terakhir sambil mencoba lagi.</p>
+        )}
         <BottomNav
               currentScreen={screen}
               hasActiveOrder={Boolean(activeOrder)}
