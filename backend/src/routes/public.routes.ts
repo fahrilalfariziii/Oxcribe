@@ -3,14 +3,15 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
+import { toPublicGatewayStatus, toPublicOrder } from "../lib/public-order";
 import { AppError } from "../lib/errors";
 import { FEATURES, getBusinessFeatures, isFeatureOn, requirePublicFeature } from "../lib/feature-gate";
 import { PLANS, getPlanByCode } from "../lib/plans";
 import { asyncHandler } from "../middleware/error-handler";
 import { createOrder } from "../services/order.service";
-import { createDokuChargeForMethod, dokuReferenceFromPayments, getDokuQrisStatus, getDokuVAStatus, normalizeDokuStatus, verifyDokuNotification } from "../services/doku.service";
-import { markOrderPaid, cancelOrder } from "../services/order.service";
-import { emitOrderPaymentUpdate, emitOrderStatusUpdate } from "../lib/realtime";
+import { resolveDokuConfig } from "../services/doku.service";
+import { ensureQrisCharge, pollQrisOrder, storeDokuNotification } from "../services/payment-lifecycle.service";
+import { cancelOrder } from "../services/order.service";
 import { handleStream } from "../lib/realtime";
 
 const publicOrderLimiter = rateLimit({
@@ -64,7 +65,7 @@ publicRouter.get(
       throw AppError.notFound("QR meja tidak valid atau tidak aktif");
     }
 
-    const dokuConfigured = Boolean(process.env.DOKU_CLIENT_ID && process.env.DOKU_MERCHANT_ID);
+    const dokuConfigured = Boolean(resolveDokuConfig());
     // Flag granular OFF = paksa komponen NOL di response publik
     // agar cart self-order hitung total murni untuk komponen itu.
     // Sertakan flags penuh agar FE bisa tampilkan state "Self-order nonaktif" dkk.
@@ -103,7 +104,7 @@ publicRouter.get(
         platformFeeFlat: (table.business as unknown as { platformFeeFlat?: unknown }).platformFeeFlat ?? 0,
         platformFeeBearer: (table.business as unknown as { platformFeeBearer?: string }).platformFeeBearer ?? "customer",
         features: flags,
-        enabledPaymentMethods: (table.business as unknown as { enabledPaymentMethods?: unknown }).enabledPaymentMethods ?? ["cash", "qris"],
+        enabledPaymentMethods: (Array.isArray(table.business.enabledPaymentMethods) ? table.business.enabledPaymentMethods : ["cash", "qris"]).filter((method) => method === "cash" || method === "qris"),
         paymentSettings: (table.business as unknown as { paymentSettings?: unknown }).paymentSettings ?? {},
         dokuMode: "global",
         dokuConfigured,
@@ -112,7 +113,6 @@ publicRouter.get(
     });
   })
 );
-
 // GET /api/public/businesses/:businessId/catalog
 // Katalog untuk pelanggan: hanya kategori aktif & produk yang tersedia.
 publicRouter.get(
@@ -235,10 +235,9 @@ publicRouter.post(
 
 const createSelfOrderSchema = z.object({
   qrToken: z.string().min(1),
-  clientOrderId: z.string().min(1).optional(),
+  clientOrderId: z.string().uuid().optional(),
   customerName: z.string().min(1),
-  paymentMethod: z.enum(["cash", "qris", "bank_transfer"]),
-  selectedBank: z.enum(["bca", "mandiri", "bni", "bri"]).optional(),
+  paymentMethod: z.enum(["cash", "qris"]),
   items: z
     .array(
       z.object({
@@ -275,35 +274,9 @@ publicRouter.post(
       items: data.items,
     });
 
-    // Metode non-cash SELALU via DOKU SNAP (langsung ke merchant/akun utama).
-    if ((data.paymentMethod as string) !== "cash") {
-      try {
-        const charge = await createDokuChargeForMethod({
-          method: data.paymentMethod as "qris" | "bank_transfer",
-          orderNumber: order.orderNumber,
-          grossAmount: Number(order.total),
-          customerName: data.customerName,
-          selectedBank: (data as { selectedBank?: string }).selectedBank,
-        });
-        if (charge) {
-          await prisma.payment.updateMany({
-            where: { orderId: order.id },
-            data: {
-              gateway: "doku",
-              reference: charge.referenceNo ?? charge.partnerReferenceNo,
-              gatewayData: charge as unknown as object,
-            },
-          });
-          const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true, statusLogs: true, table: true } });
-          if (refreshed) return res.status(201).json(refreshed);
-        }
-      } catch (e) {
-        console.error("[DOKU charge] gagal:", e);
-        // tetap return order tanpa gatewayData — FE akan tampil retry
-      }
-    }
+    if (order.paymentMethod === "qris") return res.status(201).json(toPublicOrder(await ensureQrisCharge(order.id)));
 
-    res.status(201).json(order);
+    res.status(201).json(toPublicOrder(order));
   })
 );
 
@@ -316,7 +289,7 @@ publicRouter.get(
       include: { items: true, payments: true, statusLogs: { orderBy: { createdAt: "asc" } } },
     });
     if (!order) throw AppError.notFound("Order tidak ditemukan");
-    res.json(order);
+    res.json(toPublicOrder(order));
   })
 );
 
@@ -327,40 +300,10 @@ publicRouter.get(
   asyncHandler(async (req, res) => {
     const order = await prisma.order.findUnique({ where: { clientOrderId: req.params.clientOrderId }, include: { items: true, payments: true } });
     if (!order) throw AppError.notFound("Order tidak ditemukan");
-    const gd = ((order as unknown as { payments?: Array<{ gatewayData?: Record<string, unknown> }> }).payments?.[0]?.gatewayData ?? {}) as Record<string, unknown>;
-    if (order.paymentMethod === "cash" || !gd.partnerReferenceNo) return res.json({ order, doku: null, midtrans: null });
-    let dokuStatus: Record<string, unknown> | null = null;
-    try {
-      if (order.paymentMethod === "qris") {
-        dokuStatus = await getDokuQrisStatus({ partnerReferenceNo: String(gd.partnerReferenceNo), referenceNo: typeof gd.referenceNo === "string" ? gd.referenceNo : undefined });
-      } else {
-        dokuStatus = await getDokuVAStatus({ partnerServiceId: typeof gd.partnerServiceId === "string" ? gd.partnerServiceId : undefined, customerNo: typeof gd.customerNo === "string" ? gd.customerNo : undefined, virtualAccountNo: typeof gd.vaNumber === "string" ? gd.vaNumber : undefined });
-      }
-    } catch {}
-    if (!dokuStatus) return res.json({ order, doku: null, midtrans: null });
-    const norm = normalizeDokuStatus(dokuStatus);
-    if (norm === "paid" && order.paymentStatus !== "paid") {
-      try {
-        const ref = typeof (dokuStatus.referenceNo as string) === "string" ? (dokuStatus.referenceNo as string) : String(gd.partnerReferenceNo);
-        const updated = await markOrderPaid(order.businessId, order.id, { reference: ref }, { allowNonCash: true });
-        emitOrderPaymentUpdate(order.businessId, updated);
-        return res.json({ order: updated, doku: dokuStatus, midtrans: dokuStatus });
-      } catch {}
-    }
-    if (norm === "failed" && order.paymentStatus === "pending") {
-      await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "failed" } });
-      await prisma.payment.updateMany({ where: { orderId: order.id }, data: { status: "failed" } });
-      try {
-        const cancelled = await cancelOrder(order.businessId, order.id);
-        emitOrderStatusUpdate(order.businessId, cancelled);
-      } catch {}
-      const failed = await prisma.order.findUnique({
-        where: { id: order.id },
-        include: { items: true, payments: true, statusLogs: { orderBy: { createdAt: "asc" } } },
-      });
-      return res.json({ order: failed ?? order, doku: dokuStatus, midtrans: dokuStatus });
-    }
-    res.json({ order, doku: dokuStatus, midtrans: dokuStatus });
+    const doku = order.paymentMethod === "qris" ? await pollQrisOrder(order.id) : null;
+    const refreshed = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true } });
+    const publicStatus = toPublicGatewayStatus(doku);
+    res.json({ order: toPublicOrder(refreshed ?? order), doku: publicStatus, midtrans: publicStatus });
   })
 );
 
@@ -374,9 +317,7 @@ publicRouter.get(
   })
 );
 
-// POST /api/public/orders/by-client/:clientOrderId/recharge — terbitkan charge DOKU baru
-// untuk order pending yang QR/VA-nya gagal terbit. Setiap recharge memakai
-// partnerReferenceNo unik yang baru, jadi selalu legal.
+// Checkout and recharge share the durable attempt; uncertain requests are queried by the worker.
 publicRouter.post(
   "/orders/by-client/:clientOrderId/recharge",
   publicOrderLimiter,
@@ -398,52 +339,7 @@ publicRouter.post(
       );
     }
 
-    // Idempoten: bila QR/VA SUDAH tersimpan, kembalikan apa adanya
-    const existingGateway = (order.payments?.[0]?.gatewayData ?? {}) as Record<string, unknown>;
-    const hasUsablePayload =
-      typeof existingGateway.qrContent === "string" ||
-      typeof existingGateway.vaNumber === "string";
-    if (hasUsablePayload) {
-      const asIs = await prisma.order.findUnique({
-        where: { id: order.id },
-        include: { items: true, payments: true, statusLogs: { orderBy: { createdAt: "asc" } } },
-      });
-      return res.json({ ...(asIs ?? order), reused: true });
-    }
-
-    const body = (req.body ?? {}) as { selectedBank?: string };
-    const allowedBanks = ["bca", "mandiri", "bni", "bri"] as const;
-    const selectedBank = allowedBanks.includes(body.selectedBank as (typeof allowedBanks)[number])
-      ? (body.selectedBank as string)
-      : undefined;
-
-    const charge = await createDokuChargeForMethod({
-      method: order.paymentMethod as "qris" | "bank_transfer",
-      orderNumber: order.orderNumber,
-      grossAmount: Number(order.total),
-      customerName: order.customerName ?? undefined,
-      selectedBank,
-    });
-    if (!charge) throw AppError.badRequest("DOKU charge gagal — periksa kredensial/B2B token di log server");
-
-    // Silsilah: reference lama disimpan agar notifikasi susulan tetap dikenali
-    const prevGateway = (order.payments?.[0]?.gatewayData ?? {}) as Record<string, unknown>;
-    const prevIds = Array.isArray(prevGateway.previousReferenceNos) ? (prevGateway.previousReferenceNos as string[]) : [];
-    const prevRef = typeof prevGateway.partnerReferenceNo === "string" ? (prevGateway.partnerReferenceNo as string) : null;
-    const previousReferenceNos = [...prevIds, ...(prevRef && prevRef !== charge.partnerReferenceNo ? [prevRef] : [])].slice(-10);
-    await prisma.payment.updateMany({
-      where: { orderId: order.id },
-      data: {
-        gateway: "doku",
-        reference: charge.referenceNo ?? charge.partnerReferenceNo,
-        gatewayData: { ...charge, previousReferenceNos } as unknown as object,
-      },
-    });
-    const refreshed = await prisma.order.findUnique({
-      where: { id: order.id },
-      include: { items: true, payments: true, statusLogs: { orderBy: { createdAt: "asc" } } },
-    });
-    res.status(201).json({ ...(refreshed ?? order), reused: false });
+    res.json(toPublicOrder(await ensureQrisCharge(order.id)));
   })
 );
 
@@ -459,170 +355,16 @@ publicRouter.post(
     if (order.paymentStatus === "paid") throw AppError.badRequest("Order yang sudah lunas tidak bisa dibatalkan");
     if (order.status === "selesai" || order.status === "batal") throw AppError.badRequest("Order sudah selesai atau dibatalkan");
     const cancelled = await cancelOrder(order.businessId, order.id);
-    res.json(cancelled);
+    res.json(toPublicOrder(cancelled));
   })
 );
 
-// POST /api/public/doku/notification — HTTP Notification DOKU SNAP (public, verify X-SIGNATURE)
-// Mendukung VA payment notification (virtualAccountNo/trxId) & QRIS/debit notify
-// (originalPartnerReferenceNo + latestTransactionStatus). Balas 200 agar DOKU berhenti retry.
+// Verified events are durable before acknowledging DOKU; the worker processes them.
 publicRouter.post(
   "/doku/notification",
   dokuNotificationLimiter,
   asyncHandler(async (req, res) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const headers = req.headers as Record<string, string | string[] | undefined>;
-    const getH = (k: string) => String(headers[k.toLowerCase()] ?? headers[k] ?? "");
-
-    // Fail-closed: verifikasi signature SEBELUM lookup/mutasi order apa pun.
-    // Tanpa signature+timestamp+secret yang valid, notifikasi ditolak (tidak lagi
-    // dilewati dengan warning seperti sebelumnya).
-    const signature = getH("x-signature");
-    const timestamp = getH("x-timestamp");
-    const authz = getH("authorization");
-    const accessToken = authz.startsWith("Bearer ") ? authz.slice(7) : authz;
-    if (!signature || !timestamp || !process.env.DOKU_SECRET_KEY) {
-      throw AppError.unauthorized("Notifikasi DOKU tanpa signature");
-    }
-    const sigValid = verifyDokuNotification({ httpMethod: "POST", endpointPath: "/api/public/doku/notification", accessToken, body, timestamp, signature });
-    if (!sigValid) throw AppError.badRequest("signature tidak valid");
-
-    const candidates = [
-      body.trxId, body.partnerReferenceNo,
-      (body.virtualAccountData as Record<string, unknown> | undefined)?.trxId,
-      body.originalPartnerReferenceNo, body.originalReferenceNo,
-    ].filter((v): v is string => typeof v === "string" && v.length > 0);
-
-    let order: Awaited<ReturnType<typeof prisma.order.findUnique>> = null;
-    let paidVia: string | null = null;
-    for (const ref of candidates) {
-      const byNumber = await prisma.order.findUnique({ where: { orderNumber: ref } });
-      if (byNumber) { order = byNumber; break; }
-      const pay = await prisma.payment.findFirst({ where: { gatewayData: { path: ["partnerReferenceNo"], equals: ref } } });
-      if (pay) { order = await prisma.order.findUnique({ where: { id: pay.orderId } }); if (order) break; }
-    }
-    if (!order && candidates.length > 0) {
-      const recent = await prisma.payment.findMany({ orderBy: { id: "desc" }, take: 100 });
-      const hit = recent.find((p) => {
-        const gd = p.gatewayData as unknown as { previousReferenceNos?: unknown } | null;
-        return Array.isArray(gd?.previousReferenceNos) && candidates.some((c) => (gd.previousReferenceNos as unknown[]).includes(c));
-      });
-      if (hit) { order = await prisma.order.findUnique({ where: { id: hit.orderId } }); paidVia = candidates[0]; }
-    }
-    if (!order) {
-      console.warn(`[DOKU notification] unknown reference diabaikan: ${candidates.join(",")}`);
-      return res.json({ responseCode: "2002600", responseMessage: "Successful (ignored)" });
-    }
-
-    const latest = String(body.latestTransactionStatus ?? "").toUpperCase();
-    const vaData = body.virtualAccountData as Record<string, unknown> | undefined;
-    const paidAmountRaw = (body.paidAmount as { value?: string } | undefined)?.value ?? (vaData?.paidAmount as { value?: string } | undefined)?.value;
-    const isPaid = latest === "00" || latest === "SUCCESS" || (paidAmountRaw !== undefined && Number(paidAmountRaw) > 0) || Boolean(body.paymentRequestId);
-    const isFailed = ["04", "05", "06", "07", "FAILED", "EXPIRED", "CANCELLED"].includes(latest);
-
-    const existingPayments = await prisma.payment.findMany({ where: { orderId: order.id } });
-    const existingGatewayData = (existingPayments[0]?.gatewayData as Record<string, unknown>) ?? {};
-    const mergedGatewayData = {
-      ...(typeof existingGatewayData === "object" && existingGatewayData !== null ? existingGatewayData : {}),
-      lastNotification: body,
-      lastStatus: latest || "notified",
-      ...(paidVia ? { paidViaReference: paidVia } : {}),
-      updatedAt: new Date().toISOString(),
-    } as unknown as object;
-
-    if (isPaid) {
-      const paidAmountNum = paidAmountRaw !== undefined ? Number(paidAmountRaw) : NaN;
-      if (Number.isFinite(paidAmountNum) && paidAmountNum < Number(order.total)) {
-        console.warn(`[DOKU notification] paidAmount ${paidAmountRaw} < total order ${order.id}, disimpan tanpa mark-paid`);
-        await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gatewayData: mergedGatewayData } });
-      } else if (order.paymentStatus !== "paid") {
-        const ref = String((body.referenceNo as string) || candidates[0] || order.orderNumber);
-        const updated = await markOrderPaid(order.businessId, order.id, { reference: ref }, { allowNonCash: true });
-        await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gatewayData: mergedGatewayData } });
-        emitOrderPaymentUpdate(order.businessId, updated);
-        }
-    } else if (isFailed) {
-      await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "failed" } });
-      await prisma.payment.updateMany({ where: { orderId: order.id }, data: { status: "failed", gatewayData: mergedGatewayData } });
-      const failedOrder = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true, payments: true } });
-      if (failedOrder) emitOrderPaymentUpdate(order.businessId, failedOrder);
-      try {
-        const cancelled = await cancelOrder(order.businessId, order.id);
-        emitOrderStatusUpdate(order.businessId, cancelled);
-      } catch {}
-    } else {
-      await prisma.payment.updateMany({ where: { orderId: order.id }, data: { gatewayData: mergedGatewayData } });
-    }
-
-    res.json({ responseCode: "2002600", responseMessage: "Successful" });
-  })
-);
-
-// POST /api/public/doku/sub-account/notification — webhook Sub-Account V2 DOKU
-// (register / top-up / transfer / debit / debit-cancel / void-topup). DOKU memakai
-// SATU callback URL untuk semua event (didaftarkan saat setup merchant) — URL ini
-// perlu diregistrasi terpisah dari /doku/notification (payment).
-// Fail-closed seperti webhook payment: tanpa signature+timestamp+secret yang valid
-// -> 401/400, tak ada mutasi. Event dicatat ke audit log tenant yang cocok
-// (profileId atau partnerReferenceNo SUB-<businessId>-... buatan kita).
-publicRouter.post(
-  "/doku/sub-account/notification",
-  dokuNotificationLimiter,
-  asyncHandler(async (req, res) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const headers = req.headers as Record<string, string | string[] | undefined>;
-    const getH = (k: string) => String(headers[k.toLowerCase()] ?? headers[k] ?? "");
-    const signature = getH("x-signature");
-    const timestamp = getH("x-timestamp");
-    const authz = getH("authorization");
-    const accessToken = authz.startsWith("Bearer ") ? authz.slice(7) : authz;
-    if (!signature || !timestamp || !process.env.DOKU_SECRET_KEY) {
-      throw AppError.unauthorized("Notifikasi sub-account DOKU tanpa signature");
-    }
-    const sigValid = verifyDokuNotification({ httpMethod: "POST", endpointPath: "/api/public/doku/sub-account/notification", accessToken, body, timestamp, signature });
-    if (!sigValid) throw AppError.badRequest("signature tidak valid");
-
-    const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined);
-    const profileId = str(body.profileId);
-    const partnerRef = str(body.partnerReferenceNo) ?? str(body.originalPartnerReferenceNo);
-    const eventType = str(body.transactionType) ?? str(body.eventType) ?? str(body.type) ?? "unknown";
-
-    let business = profileId
-      ? await prisma.business.findFirst({ where: { dokuProfileId: profileId } })
-      : null;
-    if (!business && partnerRef) {
-      // Referensi buatan kita: SUB-<businessId>-<base36 ts> (register) — adopsi aman
-      // hanya bila tenant itu belum punya profileId.
-      const m = /^SUB-(\d+)-[0-9a-z]+$/.exec(partnerRef);
-      if (m) {
-        const candidate = await prisma.business.findUnique({ where: { id: Number(m[1]) } });
-        if (candidate && !candidate.dokuProfileId) business = candidate;
-      }
-    }
-    if (!business) {
-      console.warn(`[DOKU sub-account notification] tenant tak dikenal (profile=${profileId ?? "-"} ref=${partnerRef ?? "-"})`);
-      return res.json({ responseCode: "2002600", responseMessage: "Successful (ignored)" });
-    }
-
-    // Konfirmasi registrasi async: adopsi profileId + akun bila tenant belum punya.
-    if (profileId && !business.dokuProfileId) {
-      const accounts = Array.isArray(body.accounts) ? (body.accounts as object) : [];
-      await prisma.business.update({
-        where: { id: business.id },
-        data: { dokuProfileId: profileId, dokuSubAccounts: accounts, dokuSubAccountStatus: "active" },
-      });
-      const { invalidateTenantSubAccountRoute } = await import("../services/doku-subaccount.service");
-      invalidateTenantSubAccountRoute(business.id);
-    }
-    await prisma.platformAuditLog.create({
-      data: {
-        platformAdminId: null,
-        businessId: business.id,
-        action: "doku_subaccount_event",
-        before: {},
-        after: { eventType, profileId: profileId ?? null, partnerReferenceNo: partnerRef ?? null, body } as object,
-      },
-    });
+    await storeDokuNotification((req.body ?? {}) as Record<string, unknown>, req.headers);
     res.json({ responseCode: "2002600", responseMessage: "Successful" });
   })
 );

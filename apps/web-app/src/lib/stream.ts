@@ -19,6 +19,7 @@ export interface SubscribeOptions {
   token?: string
   qrToken?: string
   tableToken?: string
+  clientOrderId?: string
   handlers: StreamHandlers
   /** Dipanggil bila stream gagal berulang (mis. kredensial invalid) lalu ditutup. */
   onAuthError?: (message: string) => void
@@ -63,6 +64,7 @@ export function subscribeStream(opts: SubscribeOptions): () => void {
   if (opts.token) params.set('token', opts.token)
   if (opts.qrToken) params.set('qrToken', opts.qrToken)
   if (opts.tableToken) params.set('tableToken', opts.tableToken)
+  if (opts.clientOrderId) params.set('clientOrderId', opts.clientOrderId)
   const key = params.toString()
 
   let entry = entries.get(key)

@@ -13,19 +13,20 @@ type GatewayData = {
   qrContent?: string
   qrUrl?: string
   qrString?: string
-  vaNumber?: string
-  vaBank?: string
   expiredDate?: string
   expiry_time?: string
   expiryTime?: string
   raw?: { expiry_time?: string; expiredDate?: string }
+  chargeAttemptStatus?: string
+  chargeMessage?: string
 }
 
 interface Props {
   order: Order & { payments?: Array<{ gatewayData?: GatewayData }> }
+  qrToken?: string
   onBack: () => void
   onConfirm: () => void
-  /** Terbitkan ulang QR/VA (partnerReferenceNo DOKU baru). Dipakai saat charge pertama gagal. */
+  /** Muat status percobaan QRIS yang tersimpan di server. */
   onRetry?: () => Promise<void>
   /** Batalkan order ini lalu kembali (ganti metode bayar). Tanpa ini = kembali biasa. */
   onChangeMethod?: () => Promise<void>
@@ -95,11 +96,10 @@ function useCountdown(expiry?: string) {
   return text
 }
 
-export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMethod }: Props) {
+export function PaymentScreen({ order, qrToken, onBack, onConfirm, onRetry, onChangeMethod }: Props) {
   const { refreshOrderFromBackend, business } = useCafe()
   const theme = normalizeTheme(business.theme)
   const [liveOrder, setLiveOrder] = useState<Order>(order)
-  const [copied, setCopied] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
   const [qrZoom, setQrZoom] = useState(false)
@@ -170,6 +170,10 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
 
   async function handleRetry() {
     if (!onRetry || retrying) return
+    if (gatewayData?.chargeAttemptStatus === 'unknown' || gatewayData?.chargeAttemptStatus === 'creating') {
+      setRetryError(gatewayData.chargeMessage || 'Status QRIS sedang diperiksa. Jangan membuat pembayaran baru; hubungi kasir.')
+      return
+    }
     setRetrying(true)
     setRetryError(null)
     try {
@@ -181,7 +185,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
     }
   }
 
-  // "Pilih Metode Lain": batalkan order ini di server (QR/VA ikut di-expire)
+  // "Pilih Metode Lain": batalkan order ini di server
   // lalu kembali — checkout berikutnya menerbitkan order baru.
   async function handleChangeMethod() {
     if (changingMethod) return
@@ -243,7 +247,8 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
           .catch(() => {})
       }
       cleanup = subscribeStream({
-        qrToken: (liveOrder as unknown as { qrToken?: string }).qrToken as string | undefined,
+        qrToken,
+        clientOrderId: liveOrder.clientOrderId,
         handlers: { 'order:payment_updated': handler, 'order:status_updated': statusHandler },
       })
     } catch {}
@@ -252,7 +257,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
       if (timer) window.clearTimeout(timer)
       if (cleanup) cleanup()
     }
-  }, [liveOrder.clientOrderId, refreshOrderFromBackend, onConfirm, liveOrder])
+  }, [liveOrder.clientOrderId, refreshOrderFromBackend, onConfirm, liveOrder, qrToken])
 
   const methodLabel = liveOrder.paymentMethod === 'qris' ? 'QRIS' : liveOrder.paymentMethod === 'bank_transfer' ? 'Transfer Bank' : 'Tunai'
   const isCancelled = (liveOrder as Order).status === 'batal' || (liveOrder as Order).paymentStatus === 'canceled'
@@ -260,11 +265,11 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
   const rawExpiry = gatewayData?.expiredDate || gatewayData?.raw?.expiredDate || gatewayData?.raw?.expiry_time || gatewayData?.expiry_time || gatewayData?.expiryTime
   const fallbackExpiry = (() => {
     if (rawExpiry) return rawExpiry
-    // fallback: QRIS 15 menit, VA 24 jam dari createdAt
+    // Perkiraan batas waktu tampilan; status server tetap authoritative.
     try {
       const base = new Date(liveOrder.createdAt).getTime()
       if (isNaN(base)) return undefined
-      const add = liveOrder.paymentMethod === 'bank_transfer' ? 24*3600000 : 15*60000
+      const add = 15*60000
       const d = new Date(base + add)
       return d.toISOString()
     } catch { return undefined }
@@ -274,19 +279,6 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
   const qrValue = gatewayData?.qrContent || gatewayData?.qrString
   const nmid = extractNmid(qrValue)
   const hasQr = Boolean(qrValue || gatewayData?.qrUrl)
-  // Nomor VA DOKU mengandung padding spasi Service ID — tampil & salin versi bersih.
-  const vaDisplay = (gatewayData?.vaNumber ?? '').replace(/\s/g, '')
-  async function copyText(text: string | undefined, key: string) {
-    if (!text) return
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(key)
-      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500)
-    } catch {}
-  }
-  const handleCopyVa = async () => {
-    await copyText(vaDisplay || undefined, 'va')
-  }
 
   return (
     <div className="flex h-full flex-col" style={{ background: theme.pageBg }}>
@@ -361,16 +353,16 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
             ) : (
               <div className="mx-auto mt-3 max-w-[240px]">
                 <p className="text-sm font-semibold text-black">QR belum terbit dari DOKU</p>
-                <p className="mt-1 text-xs text-soil">Pembayaran tercatat, tapi kode QR gagal dibuat (mis. gangguan gateway). Muat ulang untuk menerbitkan QR baru.</p>
+                <p className="mt-1 text-xs text-soil">{gatewayData?.chargeMessage || 'Pesanan tersimpan. Muat status pembayaran untuk memeriksa QR yang diterbitkan server.'}</p>
                 {retryError && <p className="mt-2 text-xs font-medium text-[#ba1a1a]">{retryError}</p>}
                 <button
                   type="button"
                   onClick={handleRetry}
-                  disabled={retrying || !onRetry}
+                  disabled={retrying || !onRetry || gatewayData?.chargeAttemptStatus === 'unknown' || gatewayData?.chargeAttemptStatus === 'creating'}
                   style={{ background: theme.primary }}
                   className="mt-3 inline-block rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-60"
                 >
-                  {retrying ? 'Menerbitkan…' : 'Muat Ulang QR'}
+                  {retrying ? 'Memeriksa...' : 'Muat Status QR'}
                 </button>
               </div>
             )}
@@ -383,58 +375,7 @@ export function PaymentScreen({ order, onBack, onConfirm, onRetry, onChangeMetho
         )}
 
         {liveOrder.paymentMethod === 'bank_transfer' && (
-          <div className="rounded-[12px] border border-[#e2e2e2] bg-white px-5 py-6 text-center shadow-sm space-y-3">
-            {gatewayData?.vaNumber ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone">
-                  Virtual Account {gatewayData.vaBank ? `— ${gatewayData.vaBank.toUpperCase()}` : ''}
-                </p>
-                <p className="text-lg font-mono font-bold tracking-wider text-black">{vaDisplay}</p>
-                <button type="button" onClick={handleCopyVa} className="mx-auto flex items-center gap-1 rounded-full border border-clay bg-cream px-3 py-1 text-xs font-semibold text-black">
-                  <span className="material-symbols-outlined text-[16px]">{copied === 'va' ? 'check' : 'content_copy'}</span>
-                  <span>{copied === 'va' ? 'Tersalin' : 'Salin VA'}</span>
-                </button>
-                <p className="text-sm font-semibold text-black">Total: {formatRupiah(liveOrder.total)}</p>
-                {expiryText && <p className="text-xs text-soil">Bayar sebelum <span className="font-semibold text-black">{expiryText}</span></p>}
-                {countdown && <p className="mt-1 text-[11px] font-bold text-sage">{countdown}</p>}
-                <div className="text-left rounded-lg bg-cream p-3 text-xs leading-relaxed text-soil border border-sand">
-                  <p className="font-semibold text-black mb-1">Tata cara pembayaran:</p>
-                  {gatewayData.vaBank === 'mandiri' ? (
-                    <>
-                      <p>1. Buka Livin&apos;/ATM Mandiri → Bayar → Multipayment</p>
-                      <p>2. Masukkan nomor VA di atas</p>
-                      <p>3. Ketik nominal <strong className="text-black">PERSIS</strong> seperti total {formatRupiah(liveOrder.total)} — nominal lain akan ditolak</p>
-                      <p>4. Konfirmasi & simpan bukti, tunjukkan ke kasir</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>1. Buka m-banking / ATM {gatewayData.vaBank ? gatewayData.vaBank.toUpperCase() : ''}</p>
-                      <p>2. Pilih Transfer → Virtual Account</p>
-                      <p>3. Masukkan nomor VA di atas</p>
-                      <p>4. Pastikan nominal {formatRupiah(liveOrder.total)} & nama penerima benar</p>
-                      <p>5. Konfirmasi & simpan bukti</p>
-                    </>
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-soil">Nomor VA belum terbit dari DOKU.</p>
-                <p className="text-sm font-semibold text-black">{formatRupiah(liveOrder.total)}</p>
-                {retryError && <p className="text-xs font-medium text-[#ba1a1a]">{retryError}</p>}
-                <button
-                  type="button"
-                  onClick={handleRetry}
-                  disabled={retrying || !onRetry}
-                  style={{ background: theme.primary }}
-                  className="mx-auto inline-block rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-60"
-                >
-                  {retrying ? 'Menerbitkan…' : 'Muat Ulang VA'}
-                </button>
-                {expiryText && <p className="text-xs text-soil">Bayar sebelum {expiryText}</p>}
-              </>
-            )}
-          </div>
+          <p className="rounded-lg border border-clay bg-white p-4 text-sm text-soil">Metode pembayaran pesanan lama ini tidak lagi tersedia. Hubungi kasir untuk memeriksa statusnya.</p>
         )}
       </div>
       <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-2 border-t border-clay/10 px-5 pb-6 pt-4" style={{ background: theme.pageBg }}>

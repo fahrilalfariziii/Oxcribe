@@ -1,11 +1,6 @@
 import crypto from "crypto";
 
-// DOKU SNAP Direct API (custom UI penuh — bukan Checkout hosted).
-// Referensi: developers.doku.com Direct API SNAP (QRIS qr-mpm-generate/query,
-// VA bi-snap-va create-va/status, B2B token, symmetric signature).
-// Pola sama seperti Midtrans dulu: order dibuat dulu, lalu charge;
-// gateway="doku", gatewayData menyimpan partnerReferenceNo unik per charge.
-
+// DOKU SNAP QRIS for central merchant collection.
 export type DokuChargeResult = {
   /** ID unik versi kita (orderNumber + suffix base36). Dipakai sebagai
    *  partnerReferenceNo / trxId ke DOKU — untuk cek status & webhook. */
@@ -16,40 +11,17 @@ export type DokuChargeResult = {
   // QRIS
   qrContent?: string;
   referenceNo?: string;
-  // VA
-  vaNumber?: string;
-  vaBank?: string;
-  partnerServiceId?: string;
-  customerNo?: string;
   expiredDate?: string;
-  howToPayPage?: string;
   raw: unknown;
 };
 
-export type DokuMethod = "qris" | "bank_transfer";
-
-/** Routing ke sub-account tenant (agregator). Diomit = mengendap ke merchant utama. */
-export type DokuSubAccountRoute = {
-  profileId?: string;
-  splitRuleId?: string;
-};
-
-/** Fragmen additionalInfo.account untuk routing sub-account (Direct API). */
-function subAccountFragment(route?: DokuSubAccountRoute): Record<string, unknown> {
-  if (!route?.profileId) return {};
-  return {
-    account: {
-      id: route.profileId,
-      ...(route.splitRuleId ? { split_rule_id: route.splitRuleId } : {}),
-    },
-  };
-}
+export type DokuMethod = "qris";
 
 /** Nomor invoice unik per charge: "<orderNumber>-<base36 timestamp>". */
 export function makeDokuInvoiceId(orderNumber: string): string {
-  const suffix = Date.now().toString(36);
+  const suffix = crypto.randomUUID().replace(/-/g, "");
   // DOKU partnerReferenceNo max 64 char
-  return `${orderNumber}-${suffix}`.slice(0, 64);
+  return `${orderNumber.slice(0, 31)}-${suffix}`;
 }
 
 /** Ambil partnerReferenceNo charge terakhir dari payment tersimpan. */
@@ -165,6 +137,7 @@ export async function getDokuB2BToken(): Promise<string | null> {
   try {
     res = await fetch(url, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         "X-CLIENT-KEY": env.clientId,
@@ -205,7 +178,6 @@ async function createDokuQris(params: {
   orderNumber: string;
   grossAmount: number;
   invoiceId?: string;
-  subAccount?: DokuSubAccountRoute;
 }): Promise<DokuChargeResult | null> {
   const env = getDokuEnv();
   if (!env) {
@@ -223,7 +195,7 @@ async function createDokuQris(params: {
     merchantId: env.merchantId,
     terminalId: env.terminalId,
     validityPeriod: dokuTimestamp(expiry),
-    additionalInfo: { postalCode: env.postalCode, feeType: 1, ...subAccountFragment(params.subAccount) },
+    additionalInfo: { postalCode: env.postalCode, feeType: 1 },
   };
   const timestamp = dokuTimestamp();
   const signature = buildSymmetricSignature({
@@ -239,6 +211,7 @@ async function createDokuQris(params: {
   try {
     res = await fetch(`${dokuBaseUrl()}${QR_GENERATE_PATH}`, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         "X-PARTNER-ID": env.clientId,
@@ -306,6 +279,7 @@ export async function expireDokuQris(params: {
   try {
     res = await fetch(`${dokuBaseUrl()}${QR_EXPIRE_PATH}`, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         "X-PARTNER-ID": env.clientId,
@@ -331,167 +305,14 @@ export async function expireDokuQris(params: {
   return false;
 }
 
-// ---- Virtual Account (DGPC) ----
-
-const VA_CREATE_PATH = "/virtual-accounts/bi-snap-va/v1.1/transfer-va/create-va";
-const VA_STATUS_PATH = "/orders/v1.0/transfer-va/status";
-
-const VA_CHANNEL: Record<string, string> = {
-  bca: "VIRTUAL_ACCOUNT_BCA",
-  // Mandiri memakai _BANK_ (lihat spesimen resmi Mandiri VA DGPC) — tanpa ini 4002701 channel.
-  mandiri: "VIRTUAL_ACCOUNT_BANK_MANDIRI",
-  bni: "VIRTUAL_ACCOUNT_BNI",
-  bri: "VIRTUAL_ACCOUNT_BRI",
-};
-
-const SUPPORTED_BANKS = ["bca", "mandiri", "bni", "bri"] as const;
-
-function numericCustomerNo(invoiceId: string): string {
-  const digits = invoiceId.replace(/\D/g, "").slice(-12) || String(Date.now()).slice(-12);
-  const rand = String(Math.floor(100000 + Math.random() * 899999));
-  return `${digits}${rand}`.slice(-20);
-}
-
-/** Partner Service ID (kode perusahaan/BIN DOKU, 8 digit left-padding spasi).
- *  Diterbitkan DOKU per merchant per bank — lihat .env. Return "" bila belum diisi. */
-function getVAServiceId(bank: string): string {
-  const perBank: Record<string, string | undefined> = {
-    bca: process.env.DOKU_VA_BCA_SERVICE_ID,
-    mandiri: process.env.DOKU_VA_MANDIRI_SERVICE_ID,
-    bni: process.env.DOKU_VA_BNI_SERVICE_ID,
-    bri: process.env.DOKU_VA_BRI_SERVICE_ID,
-  };
-  const raw = (perBank[bank] ?? process.env.DOKU_PARTNER_SERVICE_ID ?? "").trim();
-  if (!raw) return "";
-  return raw.padStart(8, " ").slice(-8);
-}
-
-async function createDokuVA(params: {
-  orderNumber: string;
-  grossAmount: number;
-  customerName?: string | null;
-  bank: string;
-  invoiceId?: string;
-  subAccount?: DokuSubAccountRoute;
-}): Promise<DokuChargeResult | null> {
-  const env = getDokuEnv();
-  if (!env) {
-    console.warn("[DOKU charge] kredensial belum dikonfigurasi — order tanpa VA");
-    return null;
-  }
-  const bank = params.bank.toLowerCase();
-  if (!(SUPPORTED_BANKS as readonly string[]).includes(bank)) {
-    throw new Error(`Bank "${params.bank}" tidak didukung. Pilih: BCA, Mandiri, BNI, BRI.`);
-  }
-  const token = await getDokuB2BToken();
-  if (!token) return null;
-
-  const partnerReferenceNo = (params.invoiceId ?? makeDokuInvoiceId(params.orderNumber)).slice(0, 64);
-  const partnerServiceId = getVAServiceId(bank);
-  if (!partnerServiceId) {
-    throw new Error(
-      `Partner Service ID VA ${bank.toUpperCase()} belum dikonfigurasi (isi DOKU_VA_${bank.toUpperCase()}_SERVICE_ID atau DOKU_PARTNER_SERVICE_ID di .env)`
-    );
-  }
-  // DGPC: customerNo merchant hanya PREFIX pendek per bank ("Prefix Sub BIN Merchant",
-  // contoh resmi: "0"), lalu DOKU generate 20 digit penuh di respons.
-  // Prefix tiap bank BISA BEDA (lihat tabel dashboard) — salah prefix = 4032715.
-  const prefixPerBank: Record<string, string | undefined> = {
-    bca: process.env.DOKU_VA_BCA_CUSTOMER_PREFIX,
-    mandiri: process.env.DOKU_VA_MANDIRI_CUSTOMER_PREFIX,
-    bni: process.env.DOKU_VA_BNI_CUSTOMER_PREFIX,
-    bri: process.env.DOKU_VA_BRI_CUSTOMER_PREFIX,
-  };
-  const customerPrefix = (prefixPerBank[bank] ?? process.env.DOKU_VA_CUSTOMER_PREFIX ?? "0").trim() || "0";
-  const customerNo = customerPrefix;
-  const virtualAccountNo = `${partnerServiceId}${customerPrefix}`.slice(-28);
-  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const body = {
-    partnerServiceId,
-    customerNo,
-    virtualAccountNo,
-    virtualAccountName: (params.customerName || "Tamu").slice(0, 255),
-    trxId: partnerReferenceNo,
-    totalAmount: { value: toAmountString(params.grossAmount), currency: "IDR" },
-    additionalInfo: { channel: VA_CHANNEL[bank], ...subAccountFragment(params.subAccount) },
-    virtualAccountTrxType: "C",
-    expiredDate: dokuTimestamp(expiry),
-  };
-  const timestamp = dokuTimestamp();
-  const signature = buildSymmetricSignature({
-    secretKey: env.secretKey,
-    httpMethod: "POST",
-    endpointUrl: VA_CREATE_PATH,
-    accessToken: token,
-    body,
-    timestamp,
-  });
-
-  let res: Response;
-  try {
-    res = await fetch(`${dokuBaseUrl()}${VA_CREATE_PATH}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-PARTNER-ID": env.clientId,
-        "X-EXTERNAL-ID": dokuExternalId(),
-        "X-TIMESTAMP": timestamp,
-        "X-SIGNATURE": signature,
-        Authorization: `Bearer ${token}`,
-        "CHANNEL-ID": "H2H",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    throw new Error(`DOKU network error: ${(e as Error).message}`);
-  }
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) throw new Error(`DOKU VA gagal ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
-  const code = String(data.responseCode || "");
-  if (!code.startsWith("200")) throw new Error(`DOKU VA ditolak ${code}: ${data.responseMessage || "unknown"}`);
-
-  const vaData = (data.virtualAccountData as Record<string, unknown> | undefined) ?? {};
-  const vaNumber =
-    (vaData.virtualAccountNo as string) || (vaData.virtualAccountNumber as string) || undefined;
-  if (!vaNumber) throw new Error("DOKU VA tanpa virtualAccountNo");
-  console.log(`[DOKU charge] VA ok bank=${bank} invoice=${partnerReferenceNo} va=***${vaNumber.slice(-4)}`);
-  return {
-    partnerReferenceNo,
-    orderNumber: params.orderNumber,
-    grossAmount: String(params.grossAmount),
-    vaNumber,
-    vaBank: bank,
-    partnerServiceId: (vaData.partnerServiceId as string) || undefined,
-    customerNo: (vaData.customerNo as string) || customerNo,
-    expiredDate: (vaData.expiredDate as string) || expiry.toISOString(),
-    howToPayPage: ((data.additionalInfo as Record<string, unknown> | undefined)?.howToPayPage as string) || undefined,
-    raw: data,
-  };
-}
-
 export async function createDokuChargeForMethod(params: {
   method: DokuMethod;
   orderNumber: string;
   grossAmount: number;
-  customerName?: string | null;
-  selectedBank?: string;
-  invoiceId?: string;
-  subAccount?: DokuSubAccountRoute;
+  invoiceId: string;
 }): Promise<DokuChargeResult | null> {
-  if (params.method === "qris") {
-    return createDokuQris({ orderNumber: params.orderNumber, grossAmount: params.grossAmount, invoiceId: params.invoiceId, subAccount: params.subAccount });
-  }
-  if (params.method === "bank_transfer") {
-    return createDokuVA({
-      orderNumber: params.orderNumber,
-      grossAmount: params.grossAmount,
-      customerName: params.customerName,
-      bank: params.selectedBank || "bca",
-      invoiceId: params.invoiceId,
-      subAccount: params.subAccount,
-    });
-  }
-  return null;
+  if (params.method !== "qris") throw new Error("DOKU hanya mendukung QRIS");
+  return createDokuQris(params);
 }
 
 // ---- Cek status ----
@@ -518,6 +339,7 @@ export async function getDokuQrisStatus(params: {
   try {
     const res = await fetch(`${dokuBaseUrl()}${QR_QUERY_PATH}`, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         "X-PARTNER-ID": env.clientId,
@@ -537,49 +359,8 @@ export async function getDokuQrisStatus(params: {
   }
 }
 
-export async function getDokuVAStatus(params: {
-  partnerServiceId?: string;
-  customerNo?: string;
-  virtualAccountNo?: string;
-}): Promise<Record<string, unknown> | null> {
-  const env = getDokuEnv();
-  if (!env) return null;
-  const token = await getDokuB2BToken();
-  if (!token) return null;
-  const body = {
-    partnerServiceId: params.partnerServiceId ?? "",
-    customerNo: params.customerNo ?? "",
-    virtualAccountNo: params.virtualAccountNo ?? "",
-    additionalInfo: {},
-  };
-  const timestamp = dokuTimestamp();
-  const signature = buildSymmetricSignature({
-    secretKey: env.secretKey, httpMethod: "POST", endpointUrl: VA_STATUS_PATH,
-    accessToken: token, body, timestamp,
-  });
-  try {
-    const res = await fetch(`${dokuBaseUrl()}${VA_STATUS_PATH}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-PARTNER-ID": env.clientId,
-        "X-EXTERNAL-ID": dokuExternalId(),
-        "X-TIMESTAMP": timestamp,
-        "X-SIGNATURE": signature,
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as Record<string, unknown>;
-  } catch (e) {
-    console.warn(`[DOKU status] VA error:`, (e as Error).message);
-    return null;
-  }
-}
-
 /** Normalisasi status DOKU → paid/pending/failed/null. */
-export function normalizeDokuStatus(raw: Record<string, unknown> | null): "paid" | "pending" | "failed" | null {
+export function normalizeDokuStatus(raw: Record<string, unknown> | null): "paid" | "pending" | "failed" | "review" | null {
   if (!raw) return null;
   // QRIS query
   const latest = String(
@@ -587,17 +368,8 @@ export function normalizeDokuStatus(raw: Record<string, unknown> | null): "paid"
   ).toUpperCase();
   if (latest === "00" || latest === "SUCCESS" || latest === "SETTLEMENT" || latest === "PAID") return "paid";
   if (latest === "03" || latest === "PENDING") return "pending";
-  if (["04", "05", "06", "07", "FAILED", "EXPIRED", "CANCELLED", "REFUNDED"].includes(latest)) return "failed";
-  // VA status: paidAmount + paymentRequestId menandakan lunas
-  const vaData = raw.virtualAccountData as Record<string, unknown> | undefined;
-  if (vaData) {
-    if (vaData.paymentRequestId) return "paid";
-    const reason = ((vaData.paymentFlagReason as Record<string, string> | undefined)?.english ?? "").toUpperCase();
-    if (reason.includes("SUCCESS") || reason.includes("PAID")) return "paid";
-    if (reason.includes("PENDING") || reason.includes("BELUM")) return "pending";
-  }
-  const code = String(raw.responseCode || "");
-  if (code.startsWith("200") && raw.paidTime) return "paid";
+  if (["04", "REFUNDED"].includes(latest)) return "review";
+  if (["05", "06", "FAILED", "EXPIRED", "CANCELLED"].includes(latest)) return "failed";
   return null;
 }
 

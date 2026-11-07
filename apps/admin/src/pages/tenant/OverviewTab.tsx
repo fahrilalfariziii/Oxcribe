@@ -10,6 +10,7 @@ type Props = {
   setStatus: (v: string) => void
   onSavePlan: () => void
   onSaveStatus: () => void
+  canManagePlan: boolean
 }
 
 function Row({ k, v }: { k: string; v: string }) {
@@ -31,6 +32,7 @@ export function OverviewTab({
   setStatus,
   onSavePlan,
   onSaveStatus,
+  canManagePlan,
 }: Props) {
   const b = detail.business
   return (
@@ -66,13 +68,13 @@ export function OverviewTab({
           <CardTitle>Langganan</CardTitle>
           <div className="mt-3 space-y-3">
             <Field label="Paket">
-              <Select value={planCode} onChange={(e) => setPlanCode(e.target.value)}>
+              <Select value={planCode} onChange={(e) => setPlanCode(e.target.value)} disabled={!canManagePlan}>
                 <option value="starter">Starter</option>
                 <option value="pro">Pro</option>
                 <option value="enterprise">Enterprise</option>
               </Select>
             </Field>
-            <Button size="sm" className="w-full" onClick={onSavePlan}>
+            <Button size="sm" className="w-full" onClick={onSavePlan} disabled={!canManagePlan}>
               Simpan paket
             </Button>
             <p className="text-xs text-slate-400">Data historis tidak dihapus saat downgrade.</p>

@@ -11,7 +11,7 @@ Spesifikasi produk lengkap ada di `docs/`:
 - `prd_SaaS_multitenant.md` — layer SaaS Fase 3 (paket Starter/Pro/Enterprise, feature gating,
   Platform Admin, landing). Dokumen historis; lihat header status di dalamnya.
 - `Operasional-DOKU.md` — **runbook pembayaran & pencairan DOKU** (wajib dibaca sebelum
-  menyentuh dana: Pending vs IDR, settlement H+1, split rule, payout, tabel error).
+  menyentuh dana: ledger pending/available/reserved, rekonsiliasi statement dan payout manual).
 
 ## 1. Peta monorepo & port
 
@@ -47,7 +47,7 @@ servopay/                      # nama folder historis; brand produk = Oxcribe
 ```bash
 # Terminal 1 — backend (http://localhost:4000)
 cd backend
-cp .env.example .env            # lalu isi kredensial DOKU sandbox bila ingin uji QRIS/VA
+cp .env.example .env            # lalu isi kredensial DOKU sandbox bila ingin uji QRIS
 npm install
 docker compose up -d            # Postgres + Adminer :8081 (JANGAN down -v: menghapus data!)
 npx prisma generate
@@ -90,10 +90,7 @@ curl -s http://localhost:4000/health
   server tak terjangkau, dengan banner "Mode lokal" yang eksplisit; login fallback mock sudah
   dihapus (**login wajib server hidup**). Seed data disamakan dua sisi
   (`backend/prisma/seed.ts` ↔ `apps/web-app/src/mock/data.ts`).
-- **Pembayaran: DOKU SNAP Direct API** (QRIS MPM + VA BCA/Mandiri/BNI/BRI), custom UI penuh —
-  bukan hosted checkout. `cash` selalu manual; `qris`/`bank_transfer` selalu charge DOKU
-  (`partnerReferenceNo` unik per charge, pola `<orderNumber>-<base36 timestamp>`).
-  E-wallet **dihapus** dari metode. Detail di `backend/README.md` §7 dan `docs/Operasional-DOKU.md`.
+- **Pembayaran Self-Order: tunai dan QRIS DOKU**. Penerimaan QRIS terpusat pada merchant DOKU; POS tetap mencatat pembayaran manual. Paid dan kredit pending wallet dicatat atomik/idempoten. Settlement hanya melalui rekonsiliasi per pembayaran dengan referensi statement serta biaya aktual oleh superadmin. Payout ditransfer manual dengan bukti bank; jadwal tidak men-settle saldo. Lihat `docs/Operasional-DOKU.md`.
 - **Realtime: SSE per-bisnis** (bukan Socket.io/WebSocket): `order:new`, `order:status_updated`,
   `order:payment_updated`, `product:availability_updated`, `ingredient:stock_updated`,
   `business:cash_updated`, `business:updated`. Reconnect otomatis via `Last-Event-ID`;
@@ -106,7 +103,7 @@ curl -s http://localhost:4000/health
   (opening/expected/closing/selisih), printer ESC/POS Bluetooth/USB real (LAN simulasi),
   tema self-order per kafe (preset + custom + preview), grafik recharts dari data asli,
   riwayat self-order per sesi pelanggan, foto HEIC→JPEG otomatis, halaman Pengguna
-  (Internal vs Merchant), transfer/payout DOKU per tenant + verifikasi rekening settlement.
+  (Internal vs Merchant), wallet internal tenant, verifikasi rekening manual dan tiket pencairan dengan bukti bank.
 
 ## 4. Akun seed & autentikasi ganda
 
@@ -121,7 +118,7 @@ dan sebaliknya. Role `support` read-only untuk billing dan tidak bisa reset pass
 ## 5. Peringatan data (baca sebelum seed / drop volume!)
 
 - `npm run seed` me-`TRUNCATE` semua tabel + restart sequence — **hanya untuk dev kosong**.
-  Jangan seed-ulang / `compose down -v` di environment berisi transaksi asli tanpa backup
+  **Jangan pernah seed produksi.** Jangan `compose down -v` di environment berisi transaksi asli; siapkan backup
   (`pg_dump` dulu — lihat `backend/README.md` §8).
 - **Seed ≠ database aktif.** Mengubah file `prisma/seed.ts` (mis. email admin baru) TIDAK
   mengubah baris yang sudah ada di database. Untuk database dev yang sudah jalan, pindahkan
@@ -155,7 +152,7 @@ tercetak harus dicetak ulang setiap token berubah (halaman BackOffice → Meja).
 
 - Backend: `backend/README.md` — stack, setup, akun seed, alur testing per endpoint (curl),
   daftar endpoint lengkap (termasuk Platform Admin: tenants, users, admins, plans, invoices,
-  settlement, split-rule, transfer), aturan bisnis, DOKU (charge/webhook/recharge/ngrok),
+  wallet, rekonsiliasi settlement, refund dan payout manual), DOKU QRIS (charge/webhook/polling),
   backup, menuju production.
 - Web-app: `apps/web-app/README.md` — stack, rute per role, aturan bisnis, sinkronisasi
   realtime, tema, struktur folder aktual.
@@ -163,5 +160,7 @@ tercetak harus dicetak ulang setiap token berubah (halaman BackOffice → Meja).
   `POST /api/public/leads`, CMS `landing-content`).
 - Platform admin: `apps/admin/README.md` — dashboard internal `:5175` (`/platform/*`):
   tenants, pengguna (Internal/Merchant), paket, invoice, leads, CMS, analitik, audit,
-  operasi DOKU (register, split rule, settlement, payout).
+  rekonsiliasi pembayaran dan pencairan manual oleh superadmin.
 - Operasional dana: `docs/Operasional-DOKU.md` — wajib dibaca sebelum payout.
+
+Migrasi historis dipertahankan. Saldo legacy memerlukan review eksplisit sebelum rekonsiliasi; restart dan jam server tidak memindahkan saldo pending. Tidak ada transfer dana otomatis lewat DOKU. Lihat [panduan produksi](docs/Produksi-Pembayaran.md) sebelum deployment.

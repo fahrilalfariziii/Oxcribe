@@ -62,9 +62,8 @@ tanpa trial → redirect ke detail tenant baru.
 - **Tab Konfigurasi**: override fitur per grup (Akses Modul / Analitik & Laporan /
   Tema / Pajak & Biaya / Lainnya) via switch (buat/ubah) + hapus (kembali ke paket);
   section platform fee (%/flat + simulasi + keputusan bearer owner, read-only di sini).
-- **Tab Pembayaran & Integrasi**: status sub-account DOKU (profileId, settlement +
-  status VERIFIED/MISMATCH/UNVERIFIED), kartu saldo IDR/Pending/Poin, tombol Daftarkan
-  (superadmin) & Cairkan (superadmin), detail teknis JSON di accordion (tidak mendominasi).
+- **Tab Pembayaran & Integrasi**: informasi tunai/QRIS Self-Order dengan penerimaan
+  merchant pusat, rekonsiliasi eksplisit dan pencairan bank manual; tautan ke halaman pencairan.
 - **Tab Audit Log**: tabel + pencarian + expand before/after.
 
 ### Pengguna (`UsersPage`)
@@ -93,13 +92,26 @@ catatan opsional, audit `invoice_marked_paid`). Support read-only.
 - **Analitik**: MRR, langganan aktif, bar tenant-per-paket & tenant-baru-per-bulan (CSS murni).
 - **Audit**: filter ID tenant + aksi (server-side), tabel + expand JSON before/after.
 
-## Operasi DOKU di UI (ringkas; detail di `docs/Operasional-DOKU.md`)
+## Rekonsiliasi dan Pencairan (`PayoutsPage`)
 
-1. **Daftarkan** sub-account tenant (Tab Pembayaran) → `profileId` + VA BRI statis.
-2. **Top-up** via simulator sandbox ke VA `1392495 + <akun IDR>` (masuk IDR real-time).
-3. **Verifikasi rekening**: `PATCH .../settlement` (saat ini via curl — belum ada form UI).
-4. **Split rule**: `POST .../split-rule` (saat ini via curl — belum ada form UI).
-5. **Cairkan**: input nominal → Transfer Inquiry + Payment (`BI_FAST`), tercatat di audit.
+Self-Order menerima tunai dan QRIS. Pembayaran QRIS masuk ke akun merchant pusat;
+POS tetap dapat mencatat pembayaran transfer manual tanpa kredit wallet platform.
+
+1. Periksa daftar kasus pembayaran dan notifikasi bermasalah. Status yang tidak pasti
+   membutuhkan bukti gateway; tidak dapat dihapus dengan perubahan status bebas.
+2. Cocokkan transaksi QRIS dengan laporan settlement. Pilih transaksi, isi referensi
+   laporan dan biaya gateway aktual per pembayaran. Saldo pending adalah estimasi;
+   hanya rekonsiliasi ini yang memindahkan pendapatan ke available.
+3. Owner mengajukan rekening beserta nama pemilik. Superadmin mencatat pemeriksaan
+   manual beserta bukti dan tuple rekening yang diperiksa. Perubahan rekening membatalkan verifikasi.
+4. Permohonan payout menahan saldo available. Klik **Mulai Proses**, lakukan transfer
+   bank manual, lalu catat referensi bank dan URL bukti transfer wajib. Penolakan pada
+   status pending/processing mengembalikan saldo yang ditahan.
+5. Form refund mencatat nominal, referensi, alasan, dan bukti transfer yang sudah
+   dilakukan manual. Form membalik ledger dan tidak mengirim uang ke pelanggan.
+
+Semua perubahan dana hanya untuk superadmin; support dapat membaca daftar.
+Tidak ada settlement otomatis berdasarkan waktu atau pengiriman dana DOKU otomatis.
 
 ## Stack & pola kode
 

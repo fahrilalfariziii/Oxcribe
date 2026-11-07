@@ -18,6 +18,7 @@ import {
   seedTables,
 } from './data'
 import { uid } from '../shared/lib/format'
+import { checkoutAttemptId } from '../shared/lib/payment-policy'
 import { isFeatureOn } from '../shared/lib/features'
 import type {
   Business,
@@ -108,7 +109,7 @@ interface CafeStore {
   createRealOrder: (payload: { qrToken: string; customerName: string; paymentMethod: PaymentMethod; items: { productId: string; quantity: number; selectedOptionIds?: number[] }[] }) => Promise<Order | null>
   refreshOrderFromBackend: (clientOrderId: string) => Promise<Order | null>
   restoreOrderHistory: (qrToken: string) => Promise<{ orders: Order[]; owner: OrderOwner | null }>
-  rechargeOrderFromBackend: (clientOrderId: string, selectedBank?: string) => Promise<Order | null>
+  rechargeOrderFromBackend: (clientOrderId: string) => Promise<Order | null>
   cancelOrderFromBackend: (clientOrderId: string) => Promise<Order | null>
   refreshStaffFromBackend: () => Promise<void>
   refreshTablesFromBackend: () => Promise<void>
@@ -215,7 +216,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   const [categories, setCategories] = useState<Category[]>(seedCategories)
   const [products, setProducts] = useState(seedProducts)
   const [tables, setTables] = useState(seedTables)
-  const [orders, setOrders] = useState(seedOrders)
+  const [orders, setOrders] = useState<Order[]>(import.meta.env.PROD ? [] : seedOrders)
   const [ingredients, setIngredients] = useState(seedIngredients)
   const [movements, setMovements] = useState(seedMovements)
   const [session, setSession] = useState<Session | null>(null)
@@ -312,6 +313,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   const pendingSyncCount = orders.filter((o) => o.syncStatus !== 'synced').length
 
   const login = useCallback((email: string, password: string): StaffUser | null => {
+    if (import.meta.env.PROD) return null
     const found = staff.find((s) => s.email.toLowerCase() === email.toLowerCase())
     if (!found || !found.active) return null
     if (found.password !== password) return null
@@ -363,6 +365,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
       setSession({ user: beUser })
       return beUser
     } catch {
+      if (import.meta.env.PROD) return null
       const found = staff.find((s) => s.email.toLowerCase() === email.toLowerCase())
       if (!found || !found.active) return null
       if (found.password !== password) return null
@@ -482,18 +485,17 @@ export function CafeProvider({ children }: { children: ReactNode }) {
     return fe
   }
 
-  const createRealOrder = useCallback(async (payload: { qrToken: string; customerName: string; paymentMethod: PaymentMethod; selectedBank?: string; items: { productId: string; quantity: number; selectedOptionIds?: number[] }[] }): Promise<Order | null> => {
-    try {
+  const createRealOrder = useCallback(async (payload: { qrToken: string; customerName: string; paymentMethod: PaymentMethod; items: { productId: string; quantity: number; selectedOptionIds?: number[] }[] }): Promise<Order | null> => {
+      const clientOrderId = checkoutAttemptId(localStorage, payload)
       const beOrder = (await api.createPublicOrder({
         qrToken: payload.qrToken,
         customerName: payload.customerName,
         paymentMethod: payload.paymentMethod,
-        selectedBank: payload.selectedBank,
         items: payload.items.map((i) => ({ productId: api.toBackendId(i.productId), quantity: i.quantity, selectedOptionIds: i.selectedOptionIds })),
-        clientOrderId: undefined,
+        clientOrderId,
       })) as unknown as Record<string, unknown>
       const fe = mapBeOrderToFe(beOrder as unknown as Record<string, unknown>)
-      setOrders((prev) => [fe, ...prev])
+      setOrders((prev) => [fe, ...prev.filter((order) => order.clientOrderId !== fe.clientOrderId)])
       // Sesi pelanggan: nama BERBEDA di meja yang sama = pelanggan baru -> buang riwayat lama.
       // Nama sama (abaikan kapital/spasi) = pelanggan yang sama pesan lagi -> append.
       try {
@@ -509,9 +511,6 @@ export function CafeProvider({ children }: { children: ReactNode }) {
         writeOrderHistory([fe.clientOrderId, ...readOrderHistory().filter((id) => id !== fe.clientOrderId)])
       } catch {}
       return fe
-    } catch {
-      return null
-    }
   }, [])
 
   const refreshOrderFromBackend = useCallback(async (clientOrderId: string): Promise<Order | null> => {    try {
@@ -564,8 +563,8 @@ export function CafeProvider({ children }: { children: ReactNode }) {
 
   // Terbitkan charge DOKU baru (partnerReferenceNo unik baru) untuk order pending yang
   // QR/VA-nya gagal terbit. Gagal -> throw agar UI jujur.
-  const rechargeOrderFromBackend = useCallback(async (clientOrderId: string, selectedBank?: string): Promise<Order | null> => {
-    const raw = (await api.rechargePublicOrder(clientOrderId, selectedBank)) as unknown as Record<string, unknown>
+  const rechargeOrderFromBackend = useCallback(async (clientOrderId: string): Promise<Order | null> => {
+    const raw = (await api.rechargePublicOrder(clientOrderId)) as unknown as Record<string, unknown>
     const fe = mapBeOrderToFe(raw)
     setOrders((prev) => {
       const i = prev.findIndex((o) => o.clientOrderId === clientOrderId)
@@ -592,6 +591,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const placeOrder = useCallback<CafeStore['placeOrder']>(({ items, customerName, tableId, tableNumber, paymentMethod, source, offline }) => {
+    if (import.meta.env.PROD) throw new Error('Pesanan harus dikonfirmasi server sebelum dicatat.')
     const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0)
     // Flag granular OFF = komponen fallback lokal pun NOL (fail-closed bila features hilang).
     const taxOn = isFeatureOn(business, 'taxFees')
@@ -606,7 +606,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
     const rawTax = tEnabled ? Math.round(taxBase * (business.taxRate / 100)) : 0
     const tax = rawTax
     // Platform fee: khusus self_order non-tunai (cerminan backend lib/platform-fee.ts).
-    const feeApplicable = source === 'self_order' && (paymentMethod === 'qris' || paymentMethod === 'bank_transfer')
+    const feeApplicable = source === 'self_order' && paymentMethod === 'qris'
     const platformFee = feeApplicable && business.platformFeeEnabled
       ? (business.platformFeeMode === 'flat'
         ? Math.max(0, Math.round(business.platformFeeFlat))
@@ -662,6 +662,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const markPaid = useCallback((orderId: string, status: PaymentStatus = 'paid') => {
+    if (import.meta.env.PROD) throw new Error('Status pembayaran harus dikonfirmasi server.')
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, paymentStatus: status } : o)))
   }, [])
 
@@ -1084,6 +1085,10 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const syncNow = useCallback(() => {
+    if (import.meta.env.PROD) {
+      setConnection('offline')
+      return
+    }
     setConnection('syncing')
     window.setTimeout(() => {
       setOrders((prev) => prev.map((o) => ({ ...o, syncStatus: 'synced' })))

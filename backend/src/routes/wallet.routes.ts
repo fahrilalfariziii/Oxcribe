@@ -9,7 +9,7 @@ import {
   updateWalletBankAccount,
   updateWalletPayoutSettings,
 } from "../services/wallet.service";
-import { inquiryBankAccount } from "../services/doku-inquiry.service";
+
 import { prisma } from "../lib/prisma";
 
 export const walletRouter = Router();
@@ -46,6 +46,7 @@ walletRouter.get(
         id: wallet.id,
         availableBalance: Number(wallet.availableBalance),
         pendingBalance: Number(wallet.pendingBalance),
+        reservedBalance: Number(wallet.reservedBalance),
         bankCode: wallet.bankCode,
         bankAccount: wallet.bankAccount,
         accountName: wallet.accountName,
@@ -86,50 +87,25 @@ walletRouter.get(
   })
 );
 
-const verifyBankSchema = z.object({
-  bankCode: z.string().min(1, "Kode bank wajib diisi"),
-  bankAccount: z.string().min(4, "Nomor rekening minimal 4 digit"),
+const bankAccountSchema = z.object({
+  bankCode: z.string().trim().min(1).max(30),
+  bankAccount: z.string().trim().regex(/^[0-9]{4,40}$/),
+  accountName: z.string().trim().min(2).max(150),
 });
-
-/**
- * POST /api/wallet/verify-bank
- * Verifikasi nomor rekening via DOKU API dan simpan jika valid
- */
-walletRouter.post(
-  "/verify-bank",
-  asyncHandler(async (req, res) => {
-    const businessId = req.auth!.businessId;
-    const { bankCode, bankAccount } = verifyBankSchema.parse(req.body);
-
-    // Panggil DOKU Account Inquiry
-    const result = await inquiryBankAccount({ bankCode, bankAccount });
-
-    // Simpan ke database wallet
-    const updated = await updateWalletBankAccount(businessId, {
-      bankCode: result.bankCode,
-      bankAccount: result.bankAccount,
-      accountName: result.accountName,
-      isVerified: true,
-    });
-
-    res.json({
-      message: "Rekening bank berhasil diverifikasi dan disimpan",
-      bank: {
-        bankCode: updated.bankCode,
-        bankAccount: updated.bankAccount,
-        accountName: updated.accountName,
-        isBankVerified: updated.isBankVerified,
-      },
-    });
-  })
-);
+walletRouter.post("/bank-account", asyncHandler(async (req, res) => {
+  const bank = await updateWalletBankAccount(req.auth!.businessId, bankAccountSchema.parse(req.body));
+  res.json({
+    message: "Rekening diajukan untuk verifikasi manual admin",
+    bank
+  });
+}));
 
 const settingsSchema = z.object({
   autoPayoutEnabled: z.boolean().optional(),
   payoutFrequency: z.enum(["manual", "daily", "weekly", "monthly"]).optional(),
-  payoutDay: z.number().int().min(1).max(31).nullable().optional(),
-  minimumPayout: z.number().min(10000).optional(),
-  holdMinBalance: z.number().min(0).optional(),
+  payoutDay: z.number().int().min(0).max(31).nullable().optional(),
+  minimumPayout: z.number().int().min(10000).optional(),
+  holdMinBalance: z.number().int().min(0).optional(),
 });
 
 /**
@@ -158,7 +134,7 @@ walletRouter.put(
 );
 
 const requestPayoutSchema = z.object({
-  amount: z.number().positive("Nominal harus lebih dari 0"),
+  amount: z.number().int().positive("Nominal harus lebih dari 0"),
 });
 
 /**

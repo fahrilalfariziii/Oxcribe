@@ -7,62 +7,45 @@ import {IconBack, IconMinus, IconPlus,} from "../../../shared/components/icons";
 import { useCafe } from "../../../mock/store";
 import { normalizeTheme } from "../../../shared/types";
 import { isFeatureOn } from "../../../shared/lib/features";
+import { selfOrderPaymentMethods } from '../../../shared/lib/payment-policy'
 
 interface Props {
   tableNumber: string;
   cart: CartItem[];
   customerName: string;
   payMethod: PaymentMethod;
-  selectedBank: string;
-  onSelectBank: (bank: string) => void;
   onName: (v: string) => void;
   onPayMethod: (v: PaymentMethod) => void;
   onBack: () => void;
   onUpdateQty: (id: string, delta: number) => void;
   onCheckout: () => void;
+  checkoutPending: boolean;
 }
 
 const ALL_METHODS: { id: PaymentMethod; label: string; sub: string }[] = [
   { id: "cash", label: "Tunai", sub: "Bayar di Kasir" },
   { id: "qris", label: "QRIS", sub: "Dana, ShopeePay, GoPay, dll" },
-  { id: "bank_transfer", label: "Transfer Bank", sub: "BCA, Mandiri, BNI, BRI" },
 ];
-
-const BANKS = [
-  { id: 'bca', label: 'BCA' },
-  { id: 'mandiri', label: 'Mandiri' },
-  { id: 'bni', label: 'BNI' },
-  { id: 'bri', label: 'BRI' },
-] as const
 
 export function CartScreen({
   tableNumber,
   cart,
   customerName,
   payMethod,
-  selectedBank,
-  onSelectBank,
   onName,
   onPayMethod,
   onBack,
   onUpdateQty,
   onCheckout,
+  checkoutPending,
 }: Props) {
   const { business } = useCafe()
   const theme = normalizeTheme(business.theme)
   const [error, setError] = useState(false);
-  const availableMethods = ALL_METHODS.filter((m) => (business.enabledPaymentMethods ?? ['cash','qris']).includes(m.id))
-  const bankCfg = (business.paymentSettings as Record<string, { allowedBanks?: string[]; bank?: string }>)?.bank_transfer
-  // Saring ke 4 bank yang didukung DOKU SNAP — nilai basi (permata/cimb/dll)
-  // dari pengaturan lama tidak boleh ditawarkan ke pelanggan.
-  const SUPPORTED_BANK_IDS = ['bca', 'mandiri', 'bni', 'bri']
-  const rawAllowed: string[] = bankCfg?.allowedBanks && bankCfg.allowedBanks.length > 0 ? bankCfg.allowedBanks : (bankCfg?.bank ? [bankCfg.bank] : SUPPORTED_BANK_IDS)
-  const allowedBanks: string[] = rawAllowed.filter((b) => SUPPORTED_BANK_IDS.includes(b))
-  const effectiveAllowed = allowedBanks.length > 0 ? allowedBanks : SUPPORTED_BANK_IDS
-  const visibleBanks = BANKS.filter((b) => effectiveAllowed.includes(b.id))
+  const availableMethods = ALL_METHODS.filter((m) => selfOrderPaymentMethods(business.enabledPaymentMethods).some((method) => method === m.id))
   useEffect(() => {
-    if (payMethod === 'bank_transfer' && !effectiveAllowed.includes(selectedBank) && visibleBanks.length > 0) onSelectBank(visibleBanks[0].id)
-  }, [effectiveAllowed.join(','), payMethod])
+    if (!availableMethods.some((m) => m.id === payMethod) && availableMethods[0]) onPayMethod(availableMethods[0].id)
+  }, [availableMethods.map((m) => m.id).join(','), payMethod, onPayMethod])
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
   const taxFeatureOn = isFeatureOn(business, 'taxFees')
   // Service charge ikut flag granular (admin) + toggle owner.
@@ -244,24 +227,6 @@ export function CartScreen({
                 </button>
               )})}
             </div>
-            {payMethod === 'bank_transfer' && (
-              <div className="rounded-[12px] border border-sand bg-cream/40 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-stone mb-2">Pilih Bank Tujuan</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {visibleBanks.map((b) => (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => onSelectBank(b.id)}
-                      style={selectedBank === b.id ? { borderColor: theme.primary, background: theme.primary, color: '#fff' } : undefined}
-                      className={`rounded-lg border py-2 text-xs font-bold uppercase ${selectedBank === b.id ? '' : 'border-clay bg-white text-stone'}`}
-                    >
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </section>
           <section className="rounded-[12px] bg-[#f3f3f3] p-5">
             <h2 className="font-display mb-2 text-xl font-semibold">
@@ -313,10 +278,10 @@ export function CartScreen({
       <Button
         className="h-12 rounded-full px-8 disabled:opacity-50"
         style={{ background: theme.primary }}
-        disabled={cart.length === 0 || !customerName.trim() || availableMethods.length === 0}
+        disabled={checkoutPending || cart.length === 0 || !customerName.trim() || !availableMethods.some((m) => m.id === payMethod)}
         onClick={handleCheckout}
       >
-        Pesan Sekarang
+        {checkoutPending ? 'Mengirim Pesanan...' : 'Pesan Sekarang'}
       </Button>
     </div>
     </div>

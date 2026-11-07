@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { apiRouter } from "./routes";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
+import { prisma } from "./lib/prisma";
 
 function getCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN;
@@ -53,6 +54,15 @@ export function createApp() {
       time: new Date().toISOString(),
       build: "2026-09-12-no-vercel",
     });
+  });
+
+  app.get("/ready", async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ status: "ready" });
+    } catch {
+      res.status(503).json({ status: "unavailable" });
+    }
   });
 
   app.use("/api", apiRouter);

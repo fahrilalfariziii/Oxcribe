@@ -7,6 +7,7 @@ interface WalletData {
     id: number
     availableBalance: number
     pendingBalance: number
+    reservedBalance: number
     bankCode?: string | null
     bankAccount?: string | null
     accountName?: string | null
@@ -71,6 +72,7 @@ export function WalletPage() {
   // Form Rekening Bank
   const [bankCode, setBankCode] = useState('014')
   const [bankAccount, setBankAccount] = useState('')
+  const [accountName, setAccountName] = useState('')
   const [verifyingBank, setVerifyingBank] = useState(false)
   const [bankSuccess, setBankSuccess] = useState<string | null>(null)
   const [bankError, setBankError] = useState<string | null>(null)
@@ -91,6 +93,7 @@ export function WalletPage() {
       if (res.wallet) {
         setBankCode(res.wallet.bankCode || '014')
         setBankAccount(res.wallet.bankAccount || '')
+        setAccountName(res.wallet.accountName || '')
         setAutoPayoutEnabled(res.wallet.autoPayoutEnabled)
         setPayoutFrequency(res.wallet.payoutFrequency || 'manual')
         setPayoutDay(res.wallet.payoutDay || 1)
@@ -114,11 +117,11 @@ export function WalletPage() {
     setBankError(null)
     setBankSuccess(null)
     try {
-      const res = await api.verifyBankAccount({ bankCode, bankAccount })
-      setBankSuccess(`Rekening terverifikasi atas nama: ${res.bank.accountName}`)
+      await api.submitBankAccount({ bankCode, bankAccount, accountName: accountName.trim() })
+      setBankSuccess('Rekening disimpan dan menunggu pemeriksaan manual admin. Pencairan tersedia setelah disetujui.')
       await loadWallet()
     } catch (err) {
-      setBankError(err instanceof Error ? err.message : 'Gagal memvalidasi rekening via DOKU')
+      setBankError(err instanceof Error ? err.message : 'Gagal mengajukan rekening')
     } finally {
       setVerifyingBank(false)
     }
@@ -148,7 +151,7 @@ export function WalletPage() {
   const handleRequestPayout = async (e: React.FormEvent) => {
     e.preventDefault()
     const amount = Number(payoutAmount)
-    if (isNaN(amount) || amount <= 0) {
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > maxWithdrawable) {
       setPayoutError('Masukkan nominal yang valid')
       return
     }
@@ -192,7 +195,7 @@ export function WalletPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-stone-900">Saldo & Pencairan Dana</h1>
           <p className="text-sm text-stone-500">
-            Kelola pendapatan dari transaksi QRIS/VA DOKU, jadwal pencairan otomatis, dan penarikan langsung.
+            Pendapatan QRIS diterima terpusat. Saldo tersedia setelah rekonsiliasi admin; transfer pencairan dilakukan manual.
           </p>
         </div>
         <button
@@ -235,17 +238,17 @@ export function WalletPage() {
           </div>
         </div>
 
-        {/* Card 2: Saldo Menunggu Settlement H+1 */}
+        {/* Estimasi sebelum rekonsiliasi laporan settlement. */}
         <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Menunggu Settlement H+1</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Estimasi Menunggu Rekonsiliasi</span>
             <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">Pending</span>
           </div>
           <div className="mt-3 text-3xl font-extrabold text-amber-600">
             {formatRupiah(pending)}
           </div>
           <p className="mt-2 text-xs text-stone-500">
-            Transaksi QRIS/VA hari ini. Otomatis pindah ke saldo aktif setiap tengah malam setelah kliring bank DOKU.
+            Estimasi pendapatan QRIS sebelum biaya aktual. Dana tersedia setelah admin mencocokkan transaksi dengan laporan settlement.
           </p>
         </div>
 
@@ -255,10 +258,10 @@ export function WalletPage() {
             <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Rekening Tujuan</span>
             {wallet?.isBankVerified ? (
               <span className="flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                <span className="material-symbols-outlined text-xs">verified</span> Terverifikasi DOKU
+                <span className="material-symbols-outlined text-xs">verified</span> Diverifikasi Admin
               </span>
             ) : (
-              <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">Belum Ada</span>
+              <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{wallet?.bankAccount ? 'Menunggu Pemeriksaan' : 'Belum Ada'}</span>
             )}
           </div>
           {wallet?.isBankVerified ? (
@@ -271,11 +274,13 @@ export function WalletPage() {
             </div>
           ) : (
             <div className="mt-3 text-sm text-stone-500">
-              Silakan daftarkan dan verifikasi rekening bank Anda di bawah agar dapat menerima pencairan dana.
+              {wallet?.bankAccount ? `${wallet.bankCode} / ${wallet.bankAccount} a/n ${wallet.accountName}. Menunggu pemeriksaan manual admin.` : 'Ajukan rekening di bawah untuk diperiksa admin sebelum pencairan dana.'}
             </div>
           )}
         </div>
       </div>
+
+      <p className="rounded-xl border border-stone-200 bg-white p-4 text-sm text-stone-700">Saldo ditahan untuk pencairan: <strong>{formatRupiah(wallet?.reservedBalance ?? 0)}</strong>. Saldo ini terpisah dari saldo tersedia sampai transfer selesai atau permohonan ditolak.</p>
 
       {/* Grid: Form Verifikasi Bank & Form Jadwal Auto-Payout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -283,7 +288,7 @@ export function WalletPage() {
         <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2 border-b border-stone-100 pb-4">
             <span className="material-symbols-outlined text-amber-600">account_balance</span>
-            <h2 className="text-base font-bold text-stone-900">Verifikasi Rekening Bank</h2>
+            <h2 className="text-base font-bold text-stone-900">Ajukan Rekening Bank</h2>
           </div>
           <form onSubmit={handleVerifyBank} className="mt-4 space-y-4">
             <div>
@@ -310,9 +315,13 @@ export function WalletPage() {
                 className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2 font-mono text-sm text-stone-800 shadow-sm focus:border-amber-500 focus:outline-none"
               />
               <span className="mt-1 block text-xs text-stone-400">
-                Sistem akan memvalidasi nama pemilik rekening secara instan via DOKU SNAP BI-FAST.
+                Admin memeriksa rekening secara manual. Mengubah rekening membatalkan verifikasi sebelumnya.
               </span>
             </div>
+
+            <label className="block text-xs font-semibold text-stone-700">Nama Pemilik Rekening
+              <input value={accountName} onChange={(e) => setAccountName(e.target.value)} required className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2 text-sm" />
+            </label>
 
             {bankError && (
               <div className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{bankError}</div>
@@ -323,11 +332,11 @@ export function WalletPage() {
 
             <button
               type="submit"
-              disabled={verifyingBank || !bankAccount}
+              disabled={verifyingBank || !bankAccount || !accountName.trim()}
               className="inline-flex items-center gap-2 rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:bg-stone-300"
             >
               {verifyingBank && <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>}
-              {verifyingBank ? 'Memverifikasi ke Bank...' : 'Verifikasi & Simpan Rekening'}
+              {verifyingBank ? 'Mengajukan...' : 'Simpan untuk Pemeriksaan Admin'}
             </button>
           </form>
         </div>
@@ -336,13 +345,13 @@ export function WalletPage() {
         <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2 border-b border-stone-100 pb-4">
             <span className="material-symbols-outlined text-amber-600">schedule</span>
-            <h2 className="text-base font-bold text-stone-900">Jadwal Pencairan Otomatis (Auto-Payout)</h2>
+            <h2 className="text-base font-bold text-stone-900">Jadwal Pengajuan Pencairan</h2>
           </div>
           <form onSubmit={handleSaveSettings} className="mt-4 space-y-4">
             <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3">
               <div>
-                <div className="text-sm font-semibold text-stone-800">Aktifkan Auto-Payout</div>
-                <div className="text-xs text-stone-500">Pencairan diajukan otomatis sesuai siklus yang dipilih</div>
+                <div className="text-sm font-semibold text-stone-800">Ajukan Sesuai Jadwal</div>
+                <div className="text-xs text-stone-500">Pengajuan dibuat sesuai siklus. Transfer tetap diproses manual oleh admin.</div>
               </div>
               <input
                 type="checkbox"
@@ -528,7 +537,7 @@ export function WalletPage() {
                         <td className="px-4 py-3 text-xs font-semibold">
                           {t.type === 'ORDER_INFLOW' && <span className="text-emerald-600">+ PENDAPATAN ORDER</span>}
                           {t.type === 'PAYOUT_DEDUCTION' && <span className="text-red-600">- PENARIKAN DANA</span>}
-                          {t.type === 'SETTLEMENT' && <span className="text-blue-600">SETTLEMENT H+1</span>}
+                          {t.type === 'SETTLEMENT' && <span className="text-blue-600">REKONSILIASI SETTLEMENT</span>}
                           {t.type === 'REFUND' && <span className="text-amber-600">+ REFUND PENARIKAN</span>}
                         </td>
                         <td className="px-4 py-3 font-semibold">

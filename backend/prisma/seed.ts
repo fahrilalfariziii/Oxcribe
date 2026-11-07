@@ -38,7 +38,7 @@ async function main() {
       paymentSettings: {
         cash: { gateway: "manual" },
         qris: { gateway: "doku" },
-        bank_transfer: { gateway: "doku", bank: "bca", allowedBanks: ["bca", "mandiri", "bni", "bri"] },
+        bank_transfer: { gateway: "manual", bank: "bca" },
       },
     },
   });

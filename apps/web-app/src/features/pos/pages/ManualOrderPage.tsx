@@ -53,7 +53,7 @@ export function ManualOrderPage() {
   const [isPayModalOpen, setIsPayModalOpen] = useState(false)
   const [customerName, setCustomerName] = useState('')
   const [tableId, setTableId] = useState('')
-  const enabledMethods = (business.enabledPaymentMethods as ('cash' | 'qris' | 'bank_transfer')[]) ?? ['cash', 'qris']
+  const enabledMethods: ('cash' | 'qris' | 'bank_transfer')[] = ['cash', 'qris', 'bank_transfer']
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qris' | 'bank_transfer'>((enabledMethods[0] as 'cash' | 'qris' | 'bank_transfer') ?? 'cash')
   const [cashAmount, setCashAmount] = useState('')
 
@@ -214,7 +214,7 @@ export function ManualOrderPage() {
       if (business.soundEnabled) playShortConfirmBeep()
     } catch (e) {
       const status = (e as { status?: number })?.status
-      if (status === undefined || status === 0) {
+      if (!import.meta.env.PROD && (status === undefined || status === 0)) {
         // Server tak terjangkau (offline): simpan lokal sementara agar kasir tetap bisa jualan
         placeOrder({
           items: cart,
@@ -515,7 +515,7 @@ export function ManualOrderPage() {
                           : 'border-clay/60 bg-white text-stone hover:border-black'
                       }`}
                     >
-                      {method === 'bank_transfer' ? 'VA' : method}
+                      {method === 'bank_transfer' ? 'Transfer Manual' : method}
                     </button>
                   ))}
                 </div>

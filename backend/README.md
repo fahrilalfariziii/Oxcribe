@@ -30,9 +30,9 @@ docker compose up -d
 npx prisma generate
 
 # Buat tabel-tabel di database (migrasi pertama)
-npx prisma migrate dev --name init
+npx prisma migrate dev
 
-# Isi data contoh (business "Bean & Brew", staff, menu, meja, bahan, 2 contoh order)
+# Hanya database development kosong. JANGAN seed produksi.
 npm run seed
 
 # Jalankan server dengan auto-reload
@@ -99,92 +99,26 @@ curl -s -X POST http://localhost:4000/api/auth/login \
 curl -s http://localhost:4000/api/auth/me -H "Authorization: Bearer $TOKEN"
 ```
 
-### 3.2. Self-Order pelanggan (tanpa login) — bisa diuji
+### 3.2. Self-Order pelanggan
 
-> Token QR meja itu **dinamis** (bisa di-regenerate owner). Jangan hardcode `table-01` —
-> ambil token aktif via `GET /api/tables` (login staff) lalu pakai di bawah sebagai `$QR`.
->
-> ```bash
-> QR="<qrToken-meja-aktif>"
-> ```
+Self-Order hanya menerima `cash` dan `qris`. Ambil token QR meja aktif melalui `GET /api/tables`, lalu resolve `GET /api/public/tables/:qrToken`. Gunakan katalog tenant dari `GET /api/public/businesses/:businessId/catalog`.
 
-```bash
-# 1. Scan QR -> resolve meja + info bisnis (pajak/service + enabledPaymentMethods + paymentSettings + theme)
-curl -s http://localhost:4000/api/public/tables/$QR
+`POST /api/public/orders` menerima contoh payload:
 
-# 2. Lihat katalog (pakai businessId dari response di atas)
-curl -s http://localhost:4000/api/public/businesses/1/catalog
-
-# 3. Checkout tunai (langsung pending manual, bayar di kasir)
-curl -s -X POST http://localhost:4000/api/public/orders \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"qrToken\": \"$QR\",
-    \"customerName\": \"Budi\",
-    \"paymentMethod\": \"cash\",
-    \"items\": [{ \"productId\": 1, \"quantity\": 1, \"selectedOptionIds\": [2, 4] }]
-  }"
-
-# 4. Checkout QRIS (charge DOKU otomatis — QRIS MPM custom UI, bukan QR statis).
-#    Metode valid: cash|qris|bank_transfer (e-wallet DIHAPUS).
-#    bank_transfer butuh "selectedBank": "bca"|"mandiri"|"bni"|"bri".
-curl -s -X POST http://localhost:4000/api/public/orders \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"qrToken\": \"$QR\",
-    \"customerName\": \"Sinta\",
-    \"paymentMethod\": \"qris\",
-    \"items\": [{ \"productId\": 1, \"quantity\": 1 }]
-  }"
-# -> payments[0].gateway = "doku",
-#    gatewayData = { partnerReferenceNo, qrContent, referenceNo, ... }
-#    partnerReferenceNo = "<orderNumber>-<base36 timestamp>" (unik per charge, max 64 char).
-#    Tanpa kredensial DOKU di .env, order tetap tercatat tapi tanpa qrContent
-#    (frontend menampilkan tombol retry yang jujur).
-
-# 5. Checkout VA bank (contoh BCA)
-curl -s -X POST http://localhost:4000/api/public/orders \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"qrToken\": \"$QR\",
-    \"customerName\": \"Sinta\",
-    \"paymentMethod\": \"bank_transfer\",
-    \"selectedBank\": \"bca\",
-    \"items\": [{ \"productId\": 1, \"quantity\": 1 }]
-  }"
-# -> gatewayData = { partnerReferenceNo, vaNumber, vaBank, expiredDate, ... }
-#    Butuh Partner Service ID + prefix per bank di .env (minta ke Dashboard/support DOKU).
-
-# 6. Polling status order (fallback selain SSE)
-curl -s http://localhost:4000/api/public/orders/<clientOrderId-dari-response-checkout>
-
-# 7. Polling status DOKU + auto-sync paid (fallback webhook, tanpa perlu ngrok).
-#    Memakai partnerReferenceNo unik per charge (bukan nomor struk!).
-curl -s http://localhost:4000/api/public/orders/by-client/<clientOrderId>/status
-# -> { order: {...paymentStatus...}, doku: { ... } }
-#    Jika DOKU sudah paid tapi lokal masih pending, endpoint ini otomatis menandai paid.
-
-# 8. Terbitkan ulang QR/VA bila charge pertama gagal (partnerReferenceNo BARU, order sama)
-curl -s -X POST http://localhost:4000/api/public/orders/by-client/<clientOrderId>/recharge \
-  -H "Content-Type: application/json" -d '{}'
-
-# 9. Batalkan order oleh pelanggan (hanya yang belum lunas)
-curl -s -X POST http://localhost:4000/api/public/orders/by-client/<clientOrderId>/cancel
+```json
+{ "qrToken": "TOKEN-MEJA-AKTIF", "customerName": "Sinta", "paymentMethod": "qris", "items": [{ "productId": 1, "quantity": 1 }] }
 ```
 
-### 3.3. Webhook DOKU (butuh URL publik, mis. ngrok) — bisa diuji
+Harga dihitung server dalam rupiah utuh. Tunai dikonfirmasi kasir; QRIS memakai percobaan tersimpan dan referensi unik DOKU. Kredensial/aktivasi gateway yang belum siap tidak boleh menghasilkan pembayaran paid simulasi. Checkout ulang tidak boleh membuat tagihan baru untuk percobaan yang hasilnya belum jelas.
 
-```bash
-# Set di .env: DOKU_NOTIFICATION_URL=https://<xxx>.ngrok-free.app/api/public/doku/notification
-# DOKU akan POST ke sini saat status berubah.
-# Verifikasi X-SIGNATURE simetris (HMAC_SHA512) otomatis;
-# paid -> order paid + emit SSE order:payment_updated;
-# failed/expired -> payment failed + auto-batal order.
-# Lookup 2 lapis: cocok orderNumber persis, lalu payments.gatewayData.partnerReferenceNo.
-# Webhook Sub-Account V2 (register/transfer/dll) memakai SATU callback URL sendiri:
-#   https://<xxx>.ngrok-free.app/api/public/doku/sub-account/notification
-# Tanpa ngrok, pakai endpoint polling by-client/:clientOrderId/status di atas.
-```
+- `GET /api/public/orders/:clientOrderId`: detail pesanan.
+- `GET /api/public/orders/by-client/:clientOrderId/status`: polling gateway dan sinkronisasi transisi pembayaran.
+- `POST /api/public/orders/by-client/:clientOrderId/recharge`: tangani percobaan QRIS sesuai status tersimpan; timeout tidak otomatis mengizinkan charge baru.
+- `POST /api/public/orders/by-client/:clientOrderId/cancel`: pembatalan pesanan belum lunas sesuai guard backend.
+
+### 3.3. Webhook DOKU
+
+`POST /api/public/doku/notification` memverifikasi signature sebelum menyimpan inbox notifikasi. Worker memproses retry secara idempoten; polling menggunakan transisi pembayaran yang sama. Paid dan kredit pendapatan pending wallet dicatat atomik. Notifikasi duplikat tidak menambah saldo lagi, failed tidak menimpa paid, dan pembayaran terlambat/bermasalah masuk review. Daftarkan URL publik yang sesuai konfigurasi merchant dan validasi alur sandbox sebelum produksi.
 
 ### 3.4. Orders staff (Frontoffice) — bisa diuji
 
@@ -213,7 +147,7 @@ curl -s -X PATCH http://localhost:4000/api/orders/1/status \
   -d '{"status":"diproses"}'
 
 # Catat pembayaran lunas manual — KHUSUS cash (atau record-only manual).
-# Non-tunai gateway (qris/bank_transfer) hanya lunas via webhook/polling DOKU, bukan manual:
+# QRIS gateway DOKU hanya lunas via webhook/polling DOKU, bukan manual:
 # -> 400 "hanya bisa dilunasi via DOKU".
 curl -s -X PATCH http://localhost:4000/api/orders/1/pay \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -231,10 +165,10 @@ curl -s -X PATCH http://localhost:4000/api/orders/1/cancel \
 curl -s http://localhost:4000/api/business -H "Authorization: Bearer $TOKEN"
 
 # Update bisnis (owner only): identitas, pajak, service charge, metode pembayaran,
-# paymentSettings per metode (channel/bank VA), theme, qrTemplate
+# paymentSettings, theme, qrTemplate
 curl -s -X PUT http://localhost:4000/api/business \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"taxEnabled":true,"taxLabel":"PB1","taxRate":10,"enabledPaymentMethods":["cash","qris","bank_transfer"]}'
+  -d '{"taxEnabled":true,"taxLabel":"PB1","taxRate":10,"enabledPaymentMethods":["cash","qris"]}'
 
 # Modal kas & suara (owner/kasir/barista): openingCash (buka shift baru), closingCash (tutup shift),
 # soundEnabled — tanpa bisa menyentuh pajak/harga
@@ -323,8 +257,8 @@ backend/
 | GET    | `/api/public/businesses/:id/catalog`            | Katalog kategori+produk+opsi tersedia                              |
 | GET    | `/api/public/plans`                             | Daftar paket SaaS (Starter/Pro/Enterprise) untuk Landing Page      |
 | POST   | `/api/public/leads`                             | Form konsultasi sales `/hubungi-sales` (tersimpan di tabel `leads`) |
-| POST   | `/api/public/orders`                            | Checkout (cash manual / qris & VA bank via DOKU bila kredensial aktif) |
-| POST   | `/api/public/orders/by-client/:clientOrderId/recharge` | Terbitkan ulang charge DOKU (`partnerReferenceNo` baru) untuk order pending yang QR/VA-nya gagal terbit |
+| POST   | `/api/public/orders`                            | Checkout Self-Order: cash manual atau QRIS DOKU |
+| POST   | `/api/public/orders/by-client/:clientOrderId/recharge` | Pulihkan percobaan QRIS sesuai state tersimpan; jangan membuat tagihan baru pada hasil ambigu |
 | GET    | `/api/public/orders/:clientOrderId`             | Cek status order (polling fallback)                                |
 | GET    | `/api/public/orders/by-number/:orderNumber/status` | DINONAKTIFKAN (410 Gone, bocor enumerasi) — pakai `by-client/:clientOrderId/status` |
 | GET    | `/api/public/orders/by-client/:clientOrderId/status` | Polling status DOKU + auto-sync paid (`{ order, doku, midtrans }` — key `midtrans` hanya alias legacy) |
@@ -348,7 +282,7 @@ backend/
 | Method | Path            | Role  | Keterangan                                                              |
 | ------ | --------------- | ----- | ------------------------------------------------------------------------ |
 | GET    | `/api/business` | staff | Profil bisnis (DOKU ServerKey/Secret tidak pernah di-expose; hanya flag konfigurasi)  |
-| PUT    | `/api/business` | owner | Identitas, pajak, service, enabledPaymentMethods, paymentSettings (channel/bank VA), mode DOKU global/custom + ServerKey terenkripsi, theme, qrTemplate (nullable). Field legacy `gateway`/`midtransMode`/`instruction` tetap diterima tapi diabaikan (non-cash selalu DOKU) |
+| PUT    | `/api/business` | owner | Identitas, pajak, service, enabledPaymentMethods (cash/qris untuk Self-Order), paymentSettings, theme, qrTemplate |
 | PATCH  | `/api/business/cash-settings` | owner,kasir,barista | Buka/tutup shift (`openingCash` reset closing, `closingCash` + `cashClosedAt` otomatis, `soundEnabled`) + emit `business:cash_updated`; PUT emit `business:updated` |
 
 ### Staff (owner only)
@@ -453,13 +387,6 @@ curl -s "http://localhost:4000/api/platform/audit-logs?limit=5" -H "Authorizatio
 | POST | `/api/platform/tenants/:id/reset-owner-password` | superadmin | Reset darurat |
 | PATCH/DELETE | `/api/platform/tenants/:id/feature-overrides` | admin | Override per-key / reset ke paket |
 | PATCH | `/api/platform/tenants/:id/platform-fee` | admin | Platform fee self-order per kafe (%/flat + bearer, audit `platform_fee_changed`) |
-| PATCH | `/api/platform/tenants/:id/settlement` | superadmin | Simpan + verifikasi rekening pencairan via transfer-inquiry (tanpa gerak dana) → `VERIFIED`/`MISMATCH` |
-| POST | `/api/platform/tenants/:id/doku-subaccount/register` | superadmin | Daftarkan sub-account DOKU tenant (idempoten; audit `doku_subaccount_registered`) |
-| GET | `/api/platform/tenants/:id/doku-subaccount` | admin | Status + saldo live + splitRuleId + settlement |
-| POST | `/api/platform/tenants/:id/doku-subaccount/split-rule` | superadmin | Buat split rule fee (audit `doku_split_rule_created`) |
-| POST | `/api/platform/tenants/:id/doku-subaccount/transfer` | superadmin | Payout IDR → bank owner (inquiry + payment, audit `doku_transfer_initiated`) |
-| POST | `/api/platform/tenants/:id/doku-subaccount/transfer-from-main` | superadmin | Payout dari akun IDR utama (dana historis campur; wajib `tenantNote`; `dryRun` cek saja / `confirm=true` eksekusi, audit `doku_main_payout`) |
-| POST | `/api/public/doku/sub-account/notification` | publik (verify X-SIGNATURE) | Webhook Sub-Account V2 (register/transfer/dll) — fail-closed, audit `doku_subaccount_event` |
 | GET | `/api/platform/admins` | admin | Daftar admin internal (tanpa passwordHash; filter role/q) |
 | GET | `/api/platform/users` | admin | Daftar staff semua tenant + nama bisnis (tanpa passwordHash; filter role/businessId/q) |
 | GET/PUT | `/api/platform/plans(/:code)` | admin/superadmin | Lihat semua / ubah paket |
@@ -490,43 +417,36 @@ di semua endpoint operasional.
 - **business_id di semua tabel operasional** — fondasi multi-tenant (sudah dipakai banyak bisnis).
 - **Realtime** order baru & perubahan status langsung di-broadcast via SSE per bisnis.
 
-## 7. DOKU SNAP Direct API (custom UI penuh — bukan Checkout hosted)
+## 7. Pembayaran, wallet dan pencairan
 
-- **ID unik per charge:** nomor struk (`BE-9028`) boleh berulang (mis. habis seed ulang),
-  tapi setiap charge memakai `partnerReferenceNo = <orderNumber>-<base36 timestamp>` yang unik
-  selamanya (max 64 char, dipakai sebagai trxId DOKU). ID tersimpan di
-  `payments.gatewayData.partnerReferenceNo`; polling status & webhook memakai ID itu, bukan nomor struk.
-  Jangan `TRUNCATE`/seed-ulang di environment yang sudah transaksi ke gateway tanpa sadar
-  konsekuensinya (order lama `gateway:"midtrans"` tetap terbaca sebagai histori, tidak bisa di-query lagi).
+Self-Order memakai tunai atau QRIS DOKU dengan penerimaan merchant terpusat. POS manual (termasuk transfer bank) tidak menambah wallet. Referensi percobaan tersimpan, webhook tervalidasi dan worker/polling memakai transisi atomik yang sama. Ledger pending merupakan estimasi; jam server dan restart tidak men-settle dana.
 
-- Auth 2 lapis (standar BI-SNAP): `POST /authorization/v1/access-token/b2b`
-  (`X-CLIENT-KEY`, `X-TIMESTAMP`, `X-SIGNATURE=RSA-SHA256(privateKey, "clientId|timestamp")`, cache ~15 mnt),
-  lalu charge dengan `X-PARTNER-ID, X-EXTERNAL-ID (numeric unik), X-TIMESTAMP, X-SIGNATURE=HMAC_SHA512(secret, "METHOD:path:token:sha256(body):timestamp"), Authorization: Bearer, CHANNEL-ID: H2H`.
-- `POST /api/public/orders` & `POST /api/orders` SELALU charge DOKU untuk non-cash
-  (qris via `/snap-adapter/b2b/v1.0/qr/qr-mpm-generate` → `qrContent` string dirender FE via `qrcode.react`;
-  VA bca/mandiri/bni/bri via `/virtual-accounts/bi-snap-va/v1.1/transfer-va/create-va` DGPC → `virtualAccountNo`); nilai `gateway` lama diabaikan.
-- Metode: `cash|qris|bank_transfer` (e-wallet dihapus). Semua bank VA DOKU (tidak ada jalur echannel khusus Mandiri lagi).
-- `payments.gateway = "doku"`, `reference = referenceNo ?? partnerReferenceNo`,
-  `gatewayData = { partnerReferenceNo, qrContent, referenceNo, vaNumber, vaBank, expiredDate, raw, lastNotification }`
-  (merge — webhook tidak menghapus QR/VA charge).
-- Webhook `POST /api/public/doku/notification` verifikasi `X-SIGNATURE` simetris;
-  butuh URL publik — lokal pakai ngrok: `DOKU_NOTIFICATION_URL=https://<xxx>.ngrok-free.app/api/public/doku/notification`.
-  Webhook Sub-Account V2 memakai SATU callback URL sendiri (register/transfer/dll,
-  diregistrasi terpisah di setup merchant): `https://<xxx>.ngrok-free.app/api/public/doku/sub-account/notification`.
-- Tanpa ngrok, pakai `GET /api/public/orders/by-client/:clientOrderId/status` untuk poll + auto-sync `paid`
-  (QRIS via `/qr/qr-mpm-query`, VA via `/orders/v1.0/transfer-va/status`).
-- Isi `.env`: `DOKU_CLIENT_ID, DOKU_SECRET_KEY, DOKU_PRIVATE_KEY (\n), DOKU_MERCHANT_ID, DOKU_TERMINAL_ID, DOKU_POSTAL_CODE=10110, DOKU_IS_PRODUCTION=false` untuk Sandbox.
-  Tanpa kredensial, order tetap tercatat tapi tanpa QR/VA (FE tampil retry jujur).
+| Metode | Endpoint | Izin dan kontrak |
+| --- | --- | --- |
+| GET | `/api/wallet` | owner; saldo pending/available/reserved, ledger dan tiket payout |
+| POST | `/api/wallet/bank-account` | owner; `{bankCode, bankAccount, accountName}`, selalu unverified |
+| PUT | `/api/wallet/settings` | owner; preferensi jadwal tiket, minimum dan hold minimum |
+| POST | `/api/wallet/payout` | owner; `{amount}`, menahan available ke reserved |
+| GET | `/api/platform/wallets` | superadmin/support; rekening merchant yang diajukan |
+| POST | `/api/platform/wallets/:businessId/verify-bank` | superadmin; `{accountName, evidence}`, verifikasi manual dengan audit |
+| GET | `/api/platform/payouts/unsettled` | superadmin/support; pembayaran eligible, opsional `businessId` |
+| POST | `/api/platform/payouts/settlements` | superadmin; `{reference, payments:[{paymentId, gatewayFee}]}` |
+| GET | `/api/platform/payouts` | superadmin/support; tiket pencairan dan rekening snapshot |
+| POST | `/api/platform/payouts/:id/process` | superadmin; pending ke processing |
+| POST | `/api/platform/payouts/:id/complete` | superadmin; processing ke completed, wajib `bankRefNumber` dan `proofImageUrl` URL |
+| POST | `/api/platform/payouts/:id/reject` | superadmin; `{reason}`, pending/processing ditolak dan dana dikembalikan sekali |
+| POST | `/api/platform/payments/:id/refund` | superadmin; `{amount, reference, proofImageUrl, reason}`, pembalik ledger dengan bukti |
 
-Operasional dana harian (top-up, settlement, split rule, payout, tabel error):
-lihat `docs/Operasional-DOKU.md` — wajib dibaca sebelum payout.
+Settlement mensyaratkan statement nyata dan biaya gateway aktual tiap pembayaran. Refund dan payout adalah pencatatan transfer manual; aplikasi tidak mengirim transfer DOKU. Scheduler hanya membuat tiket sesuai tanggal Asia/Jakarta, idempoten per bisnis/tanggal. Support tidak dapat mengubah dana, tarif platform maupun paket. Penarikan/refund yang melebihi dana merchant ditolak untuk rekonsiliasi terpisah.
+
+Pertahankan seluruh migrasi historis. Review saldo legacy secara eksplisit terhadap laporan gateway dan bank; payment dengan penanda review tidak boleh di-settle biasa. Rincian operator tersedia di [Operasional-DOKU.md](../docs/Operasional-DOKU.md); checklist deployment dan verifikasi merchant di [Produksi-Pembayaran.md](../docs/Produksi-Pembayaran.md).
 
 ## 8. Backup database (penting!)
 
 Database dev memakai Docker volume (`backend_servopay_db_data`). Berlaku:
 
 - `docker compose down` = aman (data tetap). **`docker compose down -v` / `prune` = DATA HILANG.**
-- `npm run seed` me-`TRUNCATE` semua tabel + restart sequence — hanya untuk dev kosong.
+- `npm run seed` me-`TRUNCATE` semua tabel + restart sequence: hanya untuk dev kosong, tidak pernah produksi.
 - Backup sebelum operasi berisiko:
   ```bash
   docker exec servopay-db pg_dump -U servopay servopay > backups/servopay-$(date +%F).sql

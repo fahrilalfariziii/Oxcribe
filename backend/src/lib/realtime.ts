@@ -20,7 +20,8 @@ export const REALTIME_EVENTS = [
 export type RealtimeEventType = (typeof REALTIME_EVENTS)[number];
 
 type BufferedEntry = { id: number; type: RealtimeEventType; data: unknown };
-type Subscriber = { res: Response; businessId: number; lastSentId: number; heartbeat: NodeJS.Timeout };
+type Audience = { businessId: number; staff: boolean; tableId?: number; clientOrderId?: string };
+type Subscriber = Audience & { res: Response; lastSentId: number; heartbeat: NodeJS.Timeout };
 
 const CHANNEL = "oxcribe:realtime";
 const BUFFER_PER_BUSINESS = 50;
@@ -79,13 +80,30 @@ function pushBuffer(businessId: number, entry: BufferedEntry) {
   buffers.set(businessId, list);
 }
 
+function subscriberLine(sub: Subscriber, entry: BufferedEntry): string | null {
+  let data = entry.data;
+  if (!sub.staff) {
+    const value = (entry.data ?? {}) as Record<string, unknown>;
+    if (entry.type.startsWith("order:")) {
+      if (!sub.clientOrderId || value.clientOrderId !== sub.clientOrderId) return null;
+      data = { clientOrderId: value.clientOrderId, status: value.status, paymentStatus: value.paymentStatus };
+    } else if (entry.type === "business:updated") {
+      data = { id: sub.businessId };
+    } else if (entry.type === "product:availability_updated") {
+      data = { id: value.id, isAvailable: value.isAvailable };
+    } else return null;
+  }
+  return `id: ${entry.id}\nevent: ${entry.type}\ndata: ${JSON.stringify(data ?? null)}\n\n`;
+}
+
 function deliverLocal(businessId: number, type: RealtimeEventType, data: unknown, id?: number) {
   const entry: BufferedEntry = { id: id ?? ++seq, type, data };
   if (id !== undefined && id > seq) seq = id;
   pushBuffer(businessId, entry);
-  const line = `id: ${entry.id}\nevent: ${entry.type}\ndata: ${JSON.stringify(entry.data ?? null)}\n\n`;
   for (const sub of subscribers) {
     if (sub.businessId !== businessId || entry.id <= sub.lastSentId) continue;
+    const line = subscriberLine(sub, entry);
+    if (!line) continue;
     try {
       sub.res.write(line);
       sub.lastSentId = entry.id;
@@ -109,7 +127,7 @@ function publish(businessId: number, type: RealtimeEventType, data: unknown) {
   deliverLocal(businessId, type, data);
 }
 
-async function resolveBusinessId(query: Record<string, unknown>): Promise<number> {
+async function resolveAudience(query: Record<string, unknown>): Promise<Audience> {
   const token = typeof query.token === "string" ? query.token : undefined;
   // Staff: pakai businessId dari JWT, jangan percaya kiriman client.
   // Samakan dengan requireAuth: tolak token platform + cek DB agar staff yang
@@ -128,7 +146,7 @@ async function resolveBusinessId(query: Record<string, unknown>): Promise<number
     if (!user || !user.active) throw AppError.unauthorized("Akun tidak aktif");
     if (user.role !== decoded.role) throw AppError.unauthorized("Role tidak lagi valid, silakan login ulang");
     if (user.businessId !== decoded.businessId) throw AppError.unauthorized("Akses bisnis tidak valid");
-    return decoded.businessId;
+    return { businessId: decoded.businessId, staff: true };
   }
   // Pelanggan self-order: wajib kirim qrToken meja, resolve businessId via DB
   const qrToken =
@@ -138,7 +156,12 @@ async function resolveBusinessId(query: Record<string, unknown>): Promise<number
   if (!qrToken) throw AppError.badRequest("qrToken wajib diisi untuk pelanggan");
   const table = await prisma.cafeTable.findUnique({ where: { qrToken } });
   if (!table || !table.isActive) throw AppError.notFound("QR meja tidak valid atau tidak aktif");
-  return table.businessId;
+  const clientOrderId = typeof query.clientOrderId === "string" ? query.clientOrderId : undefined;
+  if (clientOrderId) {
+    const order = await prisma.order.findFirst({ where: { clientOrderId, businessId: table.businessId, tableId: table.id } });
+    if (!order) throw AppError.unauthorized("Pesanan tidak sesuai QR meja");
+  }
+  return { businessId: table.businessId, tableId: table.id, clientOrderId, staff: false };
 }
 
 /**
@@ -148,9 +171,9 @@ async function resolveBusinessId(query: Record<string, unknown>): Promise<number
  * Resume: kirim header Last-Event-ID, server replay buffer yang terlewat.
  */
 export async function handleStream(req: Request, res: Response): Promise<void> {
-  let businessId: number;
+  let audience: Audience;
   try {
-    businessId = await resolveBusinessId(req.query as Record<string, unknown>);
+    audience = await resolveAudience(req.query as Record<string, unknown>);
   } catch (e) {
     const status = (e as unknown as { statusCode?: number }).statusCode ?? 401;
     const message = e instanceof Error ? e.message : "Unauthorized";
@@ -171,7 +194,7 @@ export async function handleStream(req: Request, res: Response): Promise<void> {
   const lastId = typeof lastIdHeader === "string" ? Number(lastIdHeader) : NaN;
   const sub: Subscriber = {
     res,
-    businessId,
+    ...audience,
     lastSentId: Number.isFinite(lastId) ? (lastId as number) : 0,
     heartbeat: setInterval(() => {
       try {
@@ -196,10 +219,12 @@ export async function handleStream(req: Request, res: Response): Promise<void> {
   subscribers.add(sub);
 
   // Replay event yang terlewat saat reconnect
-  for (const entry of buffers.get(businessId) ?? []) {
+  for (const entry of buffers.get(audience.businessId) ?? []) {
     if (entry.id <= sub.lastSentId) continue;
+    const line = subscriberLine(sub, entry);
+    if (!line) continue;
     try {
-      res.write(`id: ${entry.id}\nevent: ${entry.type}\ndata: ${JSON.stringify(entry.data ?? null)}\n\n`);
+      res.write(line);
       sub.lastSentId = entry.id;
     } catch {
       break;

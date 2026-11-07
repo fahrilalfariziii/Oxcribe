@@ -11,7 +11,7 @@ import { DangerZone } from './tenant/DangerZone'
 import { ConfigTab } from './tenant/ConfigTab'
 import { PaymentTab } from './tenant/PaymentTab'
 import { AuditTab } from './tenant/AuditTab'
-import type { SubInfo, TenantDetail, TenantTabKey } from './tenant/types'
+import type { TenantDetail, TenantTabKey } from './tenant/types'
 
 export function TenantDetailPage() {
   const { id } = useParams()
@@ -32,9 +32,6 @@ export function TenantDetailPage() {
   const [feeMode, setFeeMode] = useState<'percent' | 'flat'>('percent')
   const [feePercent, setFeePercent] = useState('5')
   const [feeFlat, setFeeFlat] = useState('1000')
-  // DOKU Sub-Account (agregator, per tenant) — wallet-as-a-service V2
-  const [subInfo, setSubInfo] = useState<SubInfo>(null)
-  const [transferAmount, setTransferAmount] = useState('50000')
 
   async function load() {
     setError('')
@@ -48,13 +45,6 @@ export function TenantDetailPage() {
       setFeeMode(pf?.mode === 'flat' ? 'flat' : 'percent')
       setFeePercent(String(pf?.percent ?? 5))
       setFeeFlat(String(pf?.flat ?? 1000))
-      // DOKU sub-account (non-blocking: saldo bisa gagal bila DOKU timeout)
-      try {
-        const sub = (await platformApi.getDokuSubAccount(id!)) as unknown as SubInfo
-        setSubInfo(sub)
-      } catch {
-        setSubInfo(null)
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat')
     }
@@ -107,6 +97,7 @@ export function TenantDetailPage() {
           <div className="space-y-4">
             <OverviewTab
               detail={detail}
+              canManagePlan={isSuper}
               subStatus={subStatus}
               planCode={planCode}
               setPlanCode={setPlanCode}
@@ -133,6 +124,7 @@ export function TenantDetailPage() {
           <ConfigTab
             overrides={overrides}
             canManageFeatures={canManageFeatures}
+            canManageFee={isSuper}
             onToggleFlag={(key, value) =>
               void act(() => platformApi.updateOverrides(id!, { [key]: value }), `Override ${key} disimpan.`)
             }
@@ -167,24 +159,7 @@ export function TenantDetailPage() {
         )}
 
         {tab === 'payment' && (
-          <PaymentTab
-            subInfo={subInfo}
-            isSuper={isSuper}
-            transferAmount={transferAmount}
-            setTransferAmount={setTransferAmount}
-            onRegister={() =>
-              void act(
-                () => platformApi.registerDokuSubAccount(id!),
-                'Sub-account DOKU didaftarkan. Charge berikutnya di-routing ke tenant ini.',
-              )
-            }
-            onTransfer={() =>
-              void act(
-                () => platformApi.transferDokuFunds(id!, { amount: Number(transferAmount) || 0 }),
-                'Pencairan diajukan — cek webhook transfer di audit log.',
-              )
-            }
-          />
+          <PaymentTab />
         )}
 
         {tab === 'audit' && <AuditTab logs={detail.auditLogs} />}

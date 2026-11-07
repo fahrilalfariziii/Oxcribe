@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../lib/errors";
 import { calculateOrderTotals } from "../lib/order-calc";
@@ -47,14 +48,32 @@ function parseEnabledMethods(business: { enabledPaymentMethods?: unknown }): str
 
 const MAX_ORDER_NUMBER_RETRY = 5;
 
+function checkoutFingerprint(input: CreateOrderInput) {
+  const items = input.items.map((item) => ({ productId: item.productId, quantity: item.quantity, options: [...(item.selectedOptionIds ?? [])].sort((a, b) => a - b) })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return crypto.createHash("sha256").update(JSON.stringify({ businessId: input.businessId, tableId: input.tableId ?? null, source: input.source, customerName: input.customerName ?? null, method: input.paymentMethod, items })).digest("hex");
+}
+
+function assertCheckoutReplay(order: { businessId: number; tableId: number | null; paymentMethod: string; source: string; payments: Array<{ gatewayData: unknown }> }, input: CreateOrderInput) {
+  const data = order.payments[0]?.gatewayData as Record<string, unknown> | null;
+  if (order.businessId !== input.businessId || order.tableId !== (input.tableId ?? null) || order.paymentMethod !== input.paymentMethod || order.source !== input.source || (typeof data?.checkoutFingerprint === "string" && data.checkoutFingerprint !== checkoutFingerprint(input))) {
+    throw AppError.conflict("Referensi order sudah digunakan untuk checkout lain");
+  }
+}
+
 export async function createOrder(input: CreateOrderInput) {
+  if (input.source === "self_order" && !["cash", "qris"].includes(input.paymentMethod)) {
+    throw AppError.badRequest("Self-Order hanya menerima tunai dan QRIS");
+  }
   // Idempotency: kalau client_order_id sudah pernah dikirim (retry offline sync),
   // kembalikan order yang sudah ada, jangan buat transaksi kedua.
   const existing = await prisma.order.findUnique({
     where: { clientOrderId: input.clientOrderId },
     include: buildOrderInclude(),
   });
-  if (existing) return existing;
+  if (existing) {
+    assertCheckoutReplay(existing, input);
+    return existing;
+  }
 
   if (!input.items.length) {
     throw AppError.badRequest("Order harus memiliki minimal 1 item");
@@ -79,7 +98,7 @@ export async function createOrder(input: CreateOrderInput) {
   }
 
   const enabled = parseEnabledMethods(business);
-  if (enabled && !enabled.includes(input.paymentMethod)) {
+  if (input.source === "self_order" && enabled && !enabled.includes(input.paymentMethod)) {
     throw AppError.badRequest(`Metode pembayaran "${input.paymentMethod}" tidak aktif untuk bisnis ini`);
   }
 
@@ -168,7 +187,9 @@ export async function createOrder(input: CreateOrderInput) {
   });
 
   // Estimasi MDR dari gross yang di-charge (snapshot; label "estimasi" di UI).
-  const mdrFee = estimateMdrFee(totals.total, input.paymentMethod).fee;
+  const mdrFee = input.source === "self_order" && input.paymentMethod === "qris"
+    ? estimateMdrFee(totals.total, "qris").fee
+    : 0;
 
   // Retry kalau order_number bentrok karena race condition antar request paralel.
   let lastError: unknown;
@@ -205,6 +226,7 @@ export async function createOrder(input: CreateOrderInput) {
               method: input.paymentMethod,
               status: "pending",
               amount: totals.total,
+              gatewayData: { checkoutFingerprint: checkoutFingerprint(input) },
             },
           },
         },
@@ -215,6 +237,11 @@ export async function createOrder(input: CreateOrderInput) {
       return order;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        const replay = await prisma.order.findUnique({ where: { clientOrderId: input.clientOrderId }, include: buildOrderInclude() });
+        if (replay) {
+          assertCheckoutReplay(replay, input);
+          return replay;
+        }
         lastError = err;
         continue; // order_number atau client_order_id bentrok, coba nomor berikutnya
       }
@@ -234,6 +261,7 @@ export async function updateOrderStatus(
   if (!VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
     throw AppError.badRequest(`Status harus salah satu dari: ${VALID_STATUSES.join(", ")}`);
   }
+  if (status === "batal") return cancelOrder(businessId, orderId);
 
   const order = await prisma.order.findFirst({ where: { id: orderId, businessId } });
   if (!order) throw AppError.notFound("Order tidak ditemukan");
@@ -260,42 +288,26 @@ export async function updateOrderStatus(
 // (refund manual di luar sistem). Dipakai tombol Batal POS + auto-batal saat
 // pembayaran gateway gagal/expired.
 export async function cancelOrder(businessId: number, orderId: number) {
-  const order = await prisma.order.findFirst({ where: { id: orderId, businessId } });
-  if (!order) throw AppError.notFound("Order tidak ditemukan");
-  if (order.status === "batal") throw AppError.badRequest("Order sudah dibatalkan");
-  if (order.status === "selesai") throw AppError.badRequest("Order yang sudah selesai tidak bisa dibatalkan");
-  if (order.paymentStatus === "paid") {
-    throw AppError.badRequest("Order yang sudah lunas tidak bisa dibatalkan");
-  }
-  // Best-effort: batalkan charge DOKU agar QRIS tak bisa dibayar setelah batal lokal.
-  // VA Direct API tak punya endpoint cancel — mengandalkan kedaluwarsa alami.
-  // Kegagalan DOKU tak menggagalkan batal lokal (dicatat di gatewayData).
-  try {
-    const payments = await prisma.payment.findMany({ where: { orderId } });
-    const gd = (payments[0]?.gatewayData ?? {}) as Record<string, unknown>;
-    const partnerRef = typeof gd.partnerReferenceNo === "string" ? gd.partnerReferenceNo : undefined;
-    if (order.paymentMethod === "qris" && payments[0]?.gateway === "doku" && partnerRef) {
-      const expired = await expireDokuQris({
-        partnerReferenceNo: partnerRef,
-        referenceNo: typeof gd.referenceNo === "string" ? gd.referenceNo : undefined,
-        reason: "cancelled by cashier",
-      });
-      await prisma.payment.updateMany({
-        where: { orderId },
-        data: { gatewayData: { ...(gd as object), dokuCancelAttempt: { at: new Date().toISOString(), expired } } as unknown as object },
-      });
+  const cancelled = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+    const order = await tx.order.findFirst({ where: { id: orderId, businessId }, include: { payments: true } });
+    if (!order) throw AppError.notFound("Order tidak ditemukan");
+    if (order.paymentStatus === "paid") throw AppError.badRequest("Order yang sudah lunas tidak bisa dibatalkan");
+    if (["batal", "selesai"].includes(order.status)) throw AppError.badRequest("Order sudah selesai atau dibatalkan");
+    for (const payment of order.payments) await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id} FOR UPDATE`;
+    await tx.payment.updateMany({ where: { orderId, status: { not: "paid" } }, data: { status: "canceled" } });
+    await tx.paymentAttempt.updateMany({ where: { paymentId: { in: order.payments.map((payment) => payment.id) }, status: { in: ["creating", "pending", "unknown"] } }, data: { status: "canceled" } });
+    return tx.order.update({ where: { id: orderId }, data: { status: "batal", paymentStatus: "canceled", statusLogs: { create: { status: "batal" } } }, include: buildOrderInclude() });
+  });
+  // Gateway cancellation is outside the DB transaction; a late success is retained for review.
+  for (const payment of cancelled.payments) {
+    const gd = payment.gatewayData as Record<string, unknown> | null;
+    if (payment.gateway === "doku" && payment.method === "qris" && typeof gd?.partnerReferenceNo === "string") {
+      try { await expireDokuQris({ partnerReferenceNo: gd.partnerReferenceNo, referenceNo: typeof gd.referenceNo === "string" ? gd.referenceNo : undefined, reason: "Order canceled" }); }
+      catch (error) { console.warn("[cancelOrder] DOKU cancellation requires follow-up", error); }
     }
-  } catch (e) {
-    console.warn(`[cancelOrder] expire DOKU gagal untuk order ${orderId}:`, (e as Error).message);
   }
-  // Tandai pembayaran canceled (bukan pending) agar pelanggan & kasir tahu order ini
-  // sudah dibatalkan — bukan menunggu bayar. Hanya dari pending (kegagalan gateway
-  // yang sudah failed dibiarkan failed).
-  if (order.paymentStatus === "pending") {
-    await prisma.order.update({ where: { id: orderId }, data: { paymentStatus: "canceled" } });
-    await prisma.payment.updateMany({ where: { orderId }, data: { status: "canceled" } });
-  }
-  const cancelled = await updateOrderStatus(businessId, orderId, "batal");
+  emitOrderStatusUpdate(businessId, cancelled);
   emitOrderPaymentUpdate(businessId, cancelled);
   return cancelled;
 }
@@ -304,73 +316,39 @@ export async function markOrderPaid(
   businessId: number,
   orderId: number,
   input: { method?: PaymentMethodInput; reference?: string },
-  opts?: { allowNonCash?: boolean }
+  opts?: { allowNonCash?: boolean; tx?: Prisma.TransactionClient }
 ) {
-  const order = await prisma.order.findFirst({
-    where: { id: orderId, businessId },
-    include: { payments: true },
-  });
-  if (!order) throw AppError.notFound("Order tidak ditemukan");
-  if (order.paymentStatus === "paid") {
-    throw AppError.conflict("Order ini sudah lunas");
-  }
-  if (order.paymentStatus === "canceled") {
-    throw AppError.badRequest("Order ini sudah dibatalkan");
-  }
-  if (order.paymentMethod !== "cash" && !opts?.allowNonCash && order.payments[0]?.gateway !== "manual") {
-    throw AppError.badRequest(
-      "Pembayaran non-tunai via gateway (qris/bank_transfer) hanya bisa dilunasi via DOKU (webhook /public/doku/notification atau poll /public/orders/by-client/:clientOrderId/status), bukan manual."
-    );
-  }
-
-  const paidAt = new Date();
-  const method = input.method ?? (order.paymentMethod as PaymentMethodInput);
-
-  const [updatedOrder] = await prisma.$transaction([
-    prisma.order.update({
-      where: { id: orderId },
-      data: { paymentStatus: "paid" },
-      include: buildOrderInclude(),
-    }),
-    order.payments[0]
-      ? prisma.payment.update({
-          where: { id: order.payments[0].id },
-          data: { status: "paid", method, reference: input.reference, paidAt },
-        })
-      : prisma.payment.create({
-          data: {
-            businessId,
-            orderId,
-            method,
-            status: "paid",
-            amount: order.total,
-            reference: input.reference,
-            paidAt,
-          },
-        }),
-  ]);
-
-  // Jika pembayaran non-tunai (DOKU QRIS / VA), kreditkan dana bersih ke internal wallet kafe
-  if (order.paymentMethod !== "cash") {
-    try {
-      const gross = Number(order.total);
-      const platformFee = Number(order.platformFee ?? 0);
-      const mdrFee = Number(order.mdrFee ?? 0);
-      const netAmount = Math.max(0, gross - platformFee - mdrFee);
-
-      await creditOrderInflow({
-        businessId,
-        netAmount,
-        orderNumber: order.orderNumber,
-        description: `Pendapatan non-tunai pesanan #${order.orderNumber} (Gross Rp ${gross.toLocaleString("id-ID")})`,
-      });
-    } catch (e) {
-      console.error(`[wallet] Gagal mengkredit order #${order.orderNumber} ke wallet:`, e);
+  const transition = async (tx: Prisma.TransactionClient) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+    const order = await tx.order.findFirst({ where: { id: orderId, businessId }, include: { payments: true } });
+    if (!order) throw AppError.notFound("Order tidak ditemukan");
+    if (order.paymentStatus === "paid") return tx.order.findUnique({ where: { id: orderId }, include: buildOrderInclude() });
+    if (order.paymentStatus === "canceled" || order.status === "batal") throw AppError.badRequest("Order ini sudah dibatalkan; perlu rekonsiliasi pembayaran");
+    const payment = order.payments[0];
+    if (payment) await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id} FOR UPDATE`;
+    if (order.paymentMethod !== "cash" && !opts?.allowNonCash && payment?.gateway !== "manual" && order.source !== "pos") {
+      throw AppError.badRequest("Pembayaran QRIS gateway hanya dapat dilunasi melalui DOKU");
     }
-  }
-
-  emitOrderPaymentUpdate(businessId, updatedOrder);
-  return updatedOrder;
+    const changed = await tx.order.updateMany({ where: { id: orderId, businessId, paymentStatus: { not: "paid" }, status: { not: "batal" } }, data: { paymentStatus: "paid" } });
+    if (!changed.count) throw AppError.conflict("Status pembayaran berubah");
+    const data = { status: "paid", method: input.method ?? order.paymentMethod, reference: input.reference, paidAt: new Date() };
+    payment
+      ? await tx.payment.update({ where: { id: payment.id }, data })
+      : await tx.payment.create({ data: { ...data, orderId, businessId, amount: order.total, gateway: "manual" } });
+    if (payment?.gateway === "doku") {
+      const gross = Number(order.total);
+      await creditOrderInflow({
+        businessId, paymentId: payment.id,
+        netAmount: Math.max(0, gross - Number(order.platformFee ?? 0) - Number(order.mdrFee ?? 0)),
+        orderNumber: order.orderNumber,
+        description: `Pendapatan QRIS pesanan #${order.orderNumber}`,
+      }, tx);
+    }
+    return tx.order.findUnique({ where: { id: orderId }, include: buildOrderInclude() });
+  };
+  const updated = opts?.tx ? await transition(opts.tx) : await prisma.$transaction(transition);
+  if (!opts?.tx && updated) emitOrderPaymentUpdate(businessId, updated);
+  return updated;
 }
 
 function buildOrderInclude() {

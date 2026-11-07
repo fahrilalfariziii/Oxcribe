@@ -8,6 +8,9 @@
     "apps/*"
   ],
   "scripts": {
+    "test": "npm test --workspace=servopay-backend && npm run test:webapp",
+    "test:webapp": "node --experimental-strip-types --test apps/web-app/tests/payment-policy.test.mjs",
+    "check": "npm run check --workspace=servopay-backend",
     "dev:backend": "npm run dev --workspace=servopay-backend",
     "dev:webapp": "npm run dev --workspace=web-app",
     "dev:landing": "npm run dev --workspace=landing-page",
