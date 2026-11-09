@@ -72,3 +72,10 @@ export function createApp() {
 
   return app;
 }
+
+let vercelApp: ReturnType<typeof createApp> | undefined;
+
+export default function handleRequest(...args: Parameters<ReturnType<typeof createApp>>) {
+  vercelApp ??= createApp();
+  return vercelApp(...args);
+}
