@@ -104,13 +104,13 @@ export const api = {
     request<{ id: number; name: string; sortOrder: number; products: { id: number; name: string; description?: string; price: string | number; imageUrl?: string; isAvailable: boolean; badge?: string; options: { id: number; name: string; type: string; price: string | number; isRequired: boolean }[] }[] }[]>(
       `/api/public/businesses/${businessId}/catalog`,
     ),
-  createPublicOrder: (payload: { qrToken: string; clientOrderId?: string; customerName: string; paymentMethod: string; selectedBank?: string; items: { productId: number; quantity: number; selectedOptionIds?: number[] }[] }) =>
+  createPublicOrder: (payload: { qrToken: string; clientOrderId?: string; customerName: string; paymentMethod: string; items: { productId: number; quantity: number; selectedOptionIds?: number[] }[] }) =>
     request<unknown>(`/api/public/orders`, { method: 'POST', body: JSON.stringify(payload) }),
   getPublicOrder: (clientOrderId: string) => request<unknown>(`/api/public/orders/${clientOrderId}`),
   getPublicOrderStatus: (clientOrderId: string) =>
     request<{ order: unknown; doku: unknown | null; midtrans?: unknown | null }>(`/api/public/orders/by-client/${clientOrderId}/status`),
-  rechargePublicOrder: (clientOrderId: string, selectedBank?: string) =>
-    request<unknown>(`/api/public/orders/by-client/${clientOrderId}/recharge`, { method: 'POST', body: JSON.stringify(selectedBank ? { selectedBank } : {}) }),
+  rechargePublicOrder: (clientOrderId: string) =>
+    request<unknown>(`/api/public/orders/by-client/${clientOrderId}/recharge`, { method: 'POST', body: '{}' }),
   cancelPublicOrder: (clientOrderId: string) =>
     request<unknown>(`/api/public/orders/by-client/${clientOrderId}/cancel`, { method: 'POST' }),
 
@@ -204,6 +204,7 @@ export const api = {
         id: number
         availableBalance: number
         pendingBalance: number
+        reservedBalance: number
         bankCode?: string | null
         bankAccount?: string | null
         accountName?: string | null
@@ -241,9 +242,9 @@ export const api = {
         processedAt?: string | null
       }>
     }>('/api/wallet'),
-  verifyBankAccount: (payload: { bankCode: string; bankAccount: string }) =>
+  submitBankAccount: (payload: { bankCode: string; bankAccount: string; accountName: string }) =>
     request<{ message: string; bank: { bankCode: string; bankAccount: string; accountName: string; isBankVerified: boolean } }>(
-      '/api/wallet/verify-bank',
+      '/api/wallet/bank-account',
       { method: 'POST', body: JSON.stringify(payload) }
     ),
   updateWalletSettings: (payload: { autoPayoutEnabled?: boolean; payoutFrequency?: string; payoutDay?: number | null; minimumPayout?: number; holdMinBalance?: number }) =>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { platformApi } from '../lib/platform-api'
 import type { PayoutRow } from '../lib/platform-api'
+import { usePlatform } from '../auth/PlatformAuth'
+import { FinanceReconciliation } from './FinanceReconciliation'
 
 function formatRupiah(num: number | string): string {
   const n = typeof num === 'string' ? parseFloat(num) : num
@@ -13,9 +15,13 @@ function formatRupiah(num: number | string): string {
 }
 
 export function PayoutsPage() {
+  const { admin } = usePlatform()
+  const canWrite = admin?.role === 'superadmin'
+  const [processingId, setProcessingId] = useState<number | null>(null)
   const [payouts, setPayouts] = useState<PayoutRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('pending')
 
   // Modal Selesaikan Transfer
@@ -29,8 +35,23 @@ export function PayoutsPage() {
   const [rejectReason, setRejectReason] = useState('')
   const [submittingReject, setSubmittingReject] = useState(false)
 
-  // Trigger Settlement
-  const [triggeringSettlement, setTriggeringSettlement] = useState(false)
+  useEffect(() => {
+    if (!selectedPayout && !rejectingPayout) return
+    const previous = document.activeElement as HTMLElement | null
+    const dialog = document.querySelector<HTMLElement>('[data-payout-dialog]')
+    const controls = () => Array.from(dialog?.querySelectorAll<HTMLElement>('input, textarea, button:not(:disabled)') ?? [])
+    controls()[0]?.focus()
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submittingComplete && !submittingReject) { setSelectedPayout(null); setRejectingPayout(null) }
+      if (event.key !== 'Tab') return
+      const elements = controls()
+      const first = elements[0]; const last = elements[elements.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    document.addEventListener('keydown', keydown)
+    return () => { document.removeEventListener('keydown', keydown); previous?.focus() }
+  }, [selectedPayout, rejectingPayout, submittingComplete, submittingReject])
 
   const loadPayouts = async () => {
     try {
@@ -51,21 +72,21 @@ export function PayoutsPage() {
 
   const handleCompletePayout = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedPayout || !bankRefNumber.trim()) return
+    if (!canWrite || !selectedPayout || selectedPayout.status !== 'processing' || !bankRefNumber.trim() || !proofImageUrl.trim()) return
 
     setSubmittingComplete(true)
     try {
       await platformApi.completePayout(selectedPayout.id, {
         bankRefNumber: bankRefNumber.trim(),
-        proofImageUrl: proofImageUrl.trim() || undefined,
+        proofImageUrl: proofImageUrl.trim(),
       })
       setSelectedPayout(null)
       setBankRefNumber('')
       setProofImageUrl('')
       await loadPayouts()
-      alert('Pencairan dana berhasil diselesaikan!')
+      setNotice('Pencairan dana tercatat selesai dengan bukti transfer.')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Gagal menyelesaikan pencairan')
+      setError(err instanceof Error ? err.message : 'Gagal menyelesaikan pencairan')
     } finally {
       setSubmittingComplete(false)
     }
@@ -73,7 +94,7 @@ export function PayoutsPage() {
 
   const handleRejectPayout = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!rejectingPayout || !rejectReason.trim()) return
+    if (!canWrite || !rejectingPayout || !rejectReason.trim()) return
 
     setSubmittingReject(true)
     try {
@@ -81,25 +102,24 @@ export function PayoutsPage() {
       setRejectingPayout(null)
       setRejectReason('')
       await loadPayouts()
-      alert('Pencairan dana telah ditolak dan saldo telah dikembalikan ke dompet merchant!')
+      setNotice('Permohonan ditolak dan saldo dikembalikan ke saldo tersedia merchant.')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Gagal menolak pencairan')
+      setError(err instanceof Error ? err.message : 'Gagal menolak pencairan')
     } finally {
       setSubmittingReject(false)
     }
   }
 
-  const handleTriggerSettlement = async () => {
-    if (!confirm('Jalankan proses kliring/settlement H+1 sekarang untuk seluruh merchant?')) return
-    setTriggeringSettlement(true)
+  const handleProcessPayout = async (payout: PayoutRow) => {
+    if (!canWrite || processingId !== null) return
+    setProcessingId(payout.id)
     try {
-      const res = await platformApi.triggerSettlement()
-      alert(`Settlement berhasil! Memproses ${res.count} dompet merchant.`)
+      await platformApi.processPayout(payout.id)
       await loadPayouts()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Gagal menjalankan settlement')
+      setError(err instanceof Error ? err.message : 'Gagal mulai memproses pencairan')
     } finally {
-      setTriggeringSettlement(false)
+      setProcessingId(null)
     }
   }
 
@@ -114,15 +134,10 @@ export function PayoutsPage() {
             Daftar permohonan penarikan dana merchant. Eksekusi transfer bank via m-Banking lalu konfirmasi di sini.
           </p>
         </div>
-        <button
-          onClick={handleTriggerSettlement}
-          disabled={triggeringSettlement}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-        >
-          <span className="material-symbols-outlined text-sm">published_with_changes</span>
-          {triggeringSettlement ? 'Menjalankan...' : 'Jalankan Settlement H+1'}
-        </button>
       </div>
+
+      <FinanceReconciliation />
+      {notice && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
@@ -132,6 +147,7 @@ export function PayoutsPage() {
 
       {/* Filter Tabs */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+        <button onClick={() => setStatusFilter('processing')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${statusFilter === 'processing' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Sedang Diproses</button>
         <button
           onClick={() => setStatusFilter('pending')}
           className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
@@ -183,7 +199,7 @@ export function PayoutsPage() {
                 <th className="px-4 py-3">No. Tiket</th>
                 <th className="px-4 py-3">Kafe / Merchant</th>
                 <th className="px-4 py-3">Nominal Transfer</th>
-                <th className="px-4 py-3">Rekening Bank Tujuan (Terverifikasi DOKU)</th>
+                <th className="px-4 py-3">Rekening Bank Tujuan</th>
                 <th className="px-4 py-3">Tipe</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Tanggal</th>
@@ -226,6 +242,7 @@ export function PayoutsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
+                      {p.status === 'processing' && <span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-bold text-slate-700">Sedang Diproses</span>}
                       {p.status === 'pending' && (
                         <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-bold text-amber-800">
                           Menunggu Transfer
@@ -251,8 +268,9 @@ export function PayoutsPage() {
                       })}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {p.status === 'pending' ? (
+                      {canWrite && (p.status === 'pending' || p.status === 'processing') ? (
                         <div className="flex items-center justify-end gap-1.5">
+                          {p.status === 'pending' ? <button onClick={() => void handleProcessPayout(p)} disabled={processingId !== null} className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50">{processingId === p.id ? 'Memproses...' : 'Mulai Proses'}</button> : (
                           <button
                             onClick={() => {
                               setSelectedPayout(p)
@@ -264,6 +282,7 @@ export function PayoutsPage() {
                             <span className="material-symbols-outlined text-xs">done</span>
                             Transfer Selesai
                           </button>
+                          )}
                           <button
                             onClick={() => {
                               setRejectingPayout(p)
@@ -278,11 +297,11 @@ export function PayoutsPage() {
                         <span className="font-mono text-[11px] text-slate-500">
                           Ref: {p.bankRefNumber || '-'}
                         </span>
-                      ) : (
+                      ) : p.status === 'rejected' ? (
                         <span className="text-[11px] text-red-600" title={p.rejectionReason || ''}>
                           {p.rejectionReason || 'Ditolak'}
                         </span>
-                      )}
+                      ) : <span className="text-xs text-slate-500">Hanya lihat</span>}
                     </td>
                   </tr>
                 ))
@@ -295,8 +314,9 @@ export function PayoutsPage() {
       {/* Modal Selesaikan Transfer */}
       {selectedPayout && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-slate-900">Konfirmasi Transfer m-Banking Selesai</h3>
+          <div data-payout-dialog role="dialog" aria-modal="true" aria-labelledby="complete-payout-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 id="complete-payout-title" className="text-base font-bold text-slate-900">Konfirmasi Transfer m-Banking Selesai</h3>
+            {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
             <p className="mt-1 text-xs text-slate-500">
               Pastikan Anda telah mentransfer dana ke rekening merchant sesuai rincian berikut:
             </p>
@@ -323,10 +343,11 @@ export function PayoutsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">URL Bukti Transfer (Opsional)</label>
+                <label className="block text-xs font-semibold text-slate-700">URL Bukti Transfer *</label>
                 <input
-                  type="text"
+                  type="url"
                   value={proofImageUrl}
+                  required
                   onChange={(e) => setProofImageUrl(e.target.value)}
                   placeholder="https://..."
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-800 shadow-xs focus:border-emerald-500 focus:outline-none"
@@ -343,7 +364,7 @@ export function PayoutsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={submittingComplete || !bankRefNumber.trim()}
+                  disabled={submittingComplete || !bankRefNumber.trim() || !proofImageUrl.trim()}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:bg-slate-300"
                 >
                   {submittingComplete ? 'Menyimpan...' : 'Tandai Berhasil Ditransfer'}
@@ -357,8 +378,9 @@ export function PayoutsPage() {
       {/* Modal Tolak Transfer */}
       {rejectingPayout && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-red-600">Tolak Permohonan Penarikan Dana</h3>
+          <div data-payout-dialog role="dialog" aria-modal="true" aria-labelledby="reject-payout-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 id="reject-payout-title" className="text-base font-bold text-red-600">Tolak Permohonan Penarikan Dana</h3>
+            {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
             <p className="mt-1 text-xs text-slate-500">
               Saldo sebesar <b>{formatRupiah(rejectingPayout.amount)}</b> akan otomatis dikembalikan ke dompet merchant <b>{rejectingPayout.business?.name}</b>.
             </p>

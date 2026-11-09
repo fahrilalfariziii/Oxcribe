@@ -70,7 +70,7 @@ export const seedBusiness: Business = {
   openingCash: 0,
   closingCash: null,
   cashClosedAt: null,
-  enabledPaymentMethods: ['cash', 'qris', 'bank_transfer'],
+  enabledPaymentMethods: ['cash', 'qris'],
   paymentSettings: {
     cash: { gateway: 'manual' },
     qris: { gateway: 'doku' },

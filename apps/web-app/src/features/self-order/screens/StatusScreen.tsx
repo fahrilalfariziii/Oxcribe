@@ -3,6 +3,7 @@ import { normalizeTheme } from '../../../shared/types'
 import { formatRupiah } from '../../../shared/lib/format'
 import { Button } from '../../../shared/components/ui'
 import { useCafe } from '../../../mock/store'
+import { PaymentStatusNotice } from '../components/PaymentStatusNotice'
 
 interface Props {
   order: Order | null
@@ -35,31 +36,32 @@ export function StatusScreen({ order, cart, tableNumber, onOrderAgain, onEndSess
   }))
   const total = order?.total ?? items.reduce((s, i) => s + i.subtotal, 0)
   const headline =
-    status === 'batal' ? 'PESANAN DIBATALKAN' : status === 'selesai' ? 'PESANAN SELESAI' : status === 'siap' ? 'SIAP DISAJIKAN' : status === 'diproses' ? 'SEDANG DISIAPKAN' : 'PESANAN DITERIMA'
+    status === 'batal' ? 'Pesanan dibatalkan' : status === 'selesai' ? 'Pesanan selesai' : status === 'siap' ? 'Siap disajikan' : status === 'diproses' ? 'Sedang disiapkan' : 'Pesanan diterima'
 
   return (
     <div className="flex h-full flex-col" style={{ background: theme.pageBg }}>
       <header className="flex h-12 items-center justify-center shadow-sm">
         <span className="font-display text-2xl font-semibold">{business.name}</span>
       </header>
-      <div className="flex-1 overflow-y-auto px-5 py-6 pb-24 scrollbar-hide">
-        <div className="mb-10 flex flex-col items-center gap-4 text-center">
-          <span className="rounded-full px-6 py-2 text-sm font-semibold tracking-[0.7px] text-white" style={{ background: theme.primary }}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 scrollbar-hide">
+        {order && <PaymentStatusNotice order={order} />}
+        <div role="status" aria-atomic="true" className="my-5 space-y-1 text-center">
+          <h1 className="font-display text-2xl font-bold text-ink">
             {headline}
-          </span>
-          <p className="text-soil">
+          </h1>
+          <p className="text-sm text-soil">
             {status === 'selesai'
               ? 'Selamat menikmati makanan/minuman Anda.'
               : status === 'batal'
                 ? 'Pesanan ini dibatalkan (mis. pembayaran kedaluwarsa). Silakan pesan ulang.'
                 : status === 'siap'
                   ? 'Pesanan Anda sudah siap. Silakan ambil di counter atau tunggu penyajian ke meja.'
-                  : 'Barista kami sedang meracik pesanan Anda dengan penuh perhatian.'}
+                  : status === 'diproses' ? 'Tim kafe sedang menyiapkan pesananmu.' : 'Pesananmu sudah tercatat di kafe.'}
           </p>
         </div>
-        <div className="mb-10 flex w-full items-center justify-between px-2">
+        <ol aria-label="Progres pesanan" className="mb-5 grid grid-cols-4 gap-1">
           {STEPS.map((step, i) => (
-            <div key={step.id} className="flex flex-1 items-center last:flex-none">
+            <li key={step.id} aria-current={i === idx ? 'step' : undefined} className="min-w-0 text-center">
               {/* Lingkaran dan Label Status */}
               <div className="flex flex-col items-center gap-2">
                 <div
@@ -76,18 +78,9 @@ export function StatusScreen({ order, cart, tableNumber, onOrderAgain, onEndSess
                 </span>
               </div>
 
-              {/* Garis Penghubung (Hanya muncul di antara langkah, bukan setelah langkah terakhir) */}
-              {i < STEPS.length - 1 && (
-                <div
-                  className={`mx-3 -mt-6 h-1 flex-1 rounded-full transition-colors ${
-                    i < idx ? '' : 'bg-clay/40'
-                  }`}
-                  style={i < idx ? { background: theme.primary } : undefined}
-                />
-              )}
-            </div>
+            </li>
           ))}
-        </div>
+        </ol>
         <div className="rounded-[12px] bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between border-b border-[#e2e2e2] pb-2">
             <span className="font-display text-xl">{order ? `Order #${order.orderNumber}` : 'Pesanan'}</span>

@@ -95,6 +95,34 @@ export type PayoutRow = {
   business: { id: number; name: string; slug: string | null }
 }
 
+export type WalletRow = {
+  businessId: number
+  bankCode: string | null
+  bankAccount: string | null
+  accountName: string | null
+  isBankVerified: boolean
+  availableBalance: number
+  pendingBalance: number
+  reservedBalance: number
+  business: { id: number; name: string; slug: string | null }
+}
+
+export type UnsettledPayment = {
+  id: number
+  businessId: number
+  amount: number
+  refundedAmount: number
+  estimatedNet: number
+  paidAt: string | null
+  order: { orderNumber: string; mdrFee: number | string; platformFee: number | string }
+  business: { id: number; name: string; slug: string | null }
+}
+
+export type PaymentReview = {
+  payments: Array<{ id: number; reviewReason: string | null; amount: number | string; refundedAmount: number | string; business: { id: number; name: string }; order: { orderNumber: string } }>
+  notifications: Array<{ id: number; error: string | null; attempts: number; createdAt: string }>
+}
+
 export type LandingSectionRow = {
   id: number
   sectionKey: string
@@ -216,32 +244,6 @@ export const platformApi = {
       { method: 'PATCH', body: JSON.stringify(payload) },
     ),
 
-  // DOKU Sub-Account agregator (per tenant, wallet-as-a-service V2)
-  getDokuSubAccount: (id: number | string) =>
-    request<{
-      profileId: string | null
-      subAccounts: unknown
-      subAccountStatus: string
-      splitRuleId: string | null
-      settlement: Record<string, string | null>
-      balance: unknown
-    }>(`/api/platform/tenants/${id}/doku-subaccount`),
-  registerDokuSubAccount: (id: number | string, payload?: { name?: string; email?: string; phone?: string }) =>
-    request<{ status: string; reused: boolean; profileId: string; subAccountStatus: string }>(
-      `/api/platform/tenants/${id}/doku-subaccount/register`,
-      { method: 'POST', body: JSON.stringify(payload ?? {}) },
-    ),
-  transferDokuFunds: (id: number | string, payload: { amount: number; fromAccount?: string; beneficiaryBankCode?: string; beneficiaryAccountNumber?: string; remark?: string }) =>
-    request<{ status: string; inquiry: unknown; paid: unknown }>(`/api/platform/tenants/${id}/doku-subaccount/transfer`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  createDokuSplitRule: (id: number | string, rules: { type: 'PERCENTAGE' | 'FLAT'; value: number; currency?: string; accountNumber: string | number }[]) =>
-    request<{ status: string; splitRuleId: string }>(`/api/platform/tenants/${id}/doku-subaccount/split-rule`, {
-      method: 'POST',
-      body: JSON.stringify({ rules }),
-    }),
-
   getPlans: () => request<{ plans: PlanRow[] }>('/api/platform/plans'),
   updatePlan: (code: string, payload: Record<string, unknown>) =>
     request<PlanRow>(`/api/platform/plans/${code}`, { method: 'PUT', body: JSON.stringify(payload) }),
@@ -271,7 +273,8 @@ export const platformApi = {
     const s = qs.toString()
     return request<{ payouts: PayoutRow[] }>(`/api/platform/payouts${s ? `?${s}` : ''}`)
   },
-  completePayout: (id: number, payload: { bankRefNumber: string; proofImageUrl?: string }) =>
+  processPayout: (id: number) => request<unknown>(`/api/platform/payouts/${id}/process`, { method: 'POST' }),
+  completePayout: (id: number, payload: { bankRefNumber: string; proofImageUrl: string }) =>
     request<{ message: string; payout: unknown }>(`/api/platform/payouts/${id}/complete`, {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -281,10 +284,15 @@ export const platformApi = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
-  triggerSettlement: () =>
-    request<{ message: string; count: number }>('/api/platform/payouts/run-settlement', {
-      method: 'POST',
-    }),
+  getUnsettledPayments: () => request<{ payments: UnsettledPayment[] }>('/api/platform/payouts/unsettled'),
+  settlePayments: (payload: { reference: string; payments: { paymentId: number; gatewayFee: number }[] }) =>
+    request<unknown>('/api/platform/payouts/settlements', { method: 'POST', body: JSON.stringify(payload) }),
+  getWallets: () => request<{ wallets: WalletRow[] }>('/api/platform/wallets'),
+  getPaymentReview: () => request<PaymentReview>('/api/platform/payments/review'),
+  recordPaymentRefund: (paymentId: number, payload: { amount: number; reference: string; proofImageUrl: string; reason: string }) =>
+    request<unknown>(`/api/platform/payments/${paymentId}/refund`, { method: 'POST', body: JSON.stringify(payload) }),
+  verifyWalletBank: (businessId: number, payload: { evidence: string; accountName: string; bankCode: string; bankAccount: string }) =>
+    request<unknown>(`/api/platform/wallets/${businessId}/verify-bank`, { method: 'POST', body: JSON.stringify(payload) }),
 
   getLeads: (status?: string) =>
     request<{ leads: LeadRow[] }>(`/api/platform/leads${status ? `?status=${status}` : ''}`),

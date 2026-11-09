@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { apiRouter } from "./routes";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
+import { prisma } from "./lib/prisma";
 
 function getCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN;
@@ -55,10 +56,26 @@ export function createApp() {
     });
   });
 
+  app.get("/ready", async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ status: "ready" });
+    } catch {
+      res.status(503).json({ status: "unavailable" });
+    }
+  });
+
   app.use("/api", apiRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
 
   return app;
+}
+
+let vercelApp: ReturnType<typeof createApp> | undefined;
+
+export default function handleRequest(...args: Parameters<ReturnType<typeof createApp>>) {
+  vercelApp ??= createApp();
+  return vercelApp(...args);
 }

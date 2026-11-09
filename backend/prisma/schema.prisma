@@ -52,16 +52,6 @@ model Business {
   onboardedAt           DateTime? @map("onboarded_at")
   isPlatformSuspended   Boolean   @default(false) @map("is_platform_suspended") // kill-switch platform admin
   featureOverrides      Json?     @map("feature_overrides") // pengecualian fitur khusus tenant ini, mis. {"selfOrder": true}
-  // ---- DOKU Sub-Account agregator (wallet-as-a-service V2, per tenant) ----
-  // Routing charge memakai dokuProfileId (additionalInfo.account.id).
-  dokuProfileId              String? @map("doku_profile_id") // profileId sub-account tenant
-  dokuSubAccounts            Json?    @map("doku_sub_accounts") // accounts[] (IDR/Pending/Points + BRI VA statis)
-  dokuSubAccountStatus       String   @default("none") @map("doku_sub_account_status") // none | pending | active | failed
-  dokuSplitRuleId            String?  @map("doku_split_rule_id") // split rule fee platform (opsional)
-  dokuSettlementBankCode     String?  @map("doku_settlement_bank_code")
-  dokuSettlementBankAccount  String?  @map("doku_settlement_bank_account")
-  dokuSettlementBankName     String?  @map("doku_settlement_bank_name")
-  dokuSettlementStatus       String?  @map("doku_settlement_status") // UNVERIFIED | VERIFIED
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
@@ -229,6 +219,14 @@ model Payment {
   reference   String?
   gatewayData Json?     @map("gateway_data") // qrUrl, vaNumber, deeplink, raw response
   paidAt      DateTime? @map("paid_at")
+  settledAt DateTime? @map("settled_at")
+  settlementReference String? @map("settlement_reference")
+  gatewayFeeActual Decimal? @map("gateway_fee_actual") @db.Decimal(14, 2)
+  settledNet Decimal? @map("settled_net") @db.Decimal(14, 2)
+  refundedAmount Decimal @default(0) @map("refunded_amount") @db.Decimal(14, 2)
+  refundMetadata Json? @map("refund_metadata")
+  reviewReason String? @map("review_reason")
+  attempts PaymentAttempt[]
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@map("payments")
@@ -431,6 +429,7 @@ model MerchantWallet {
 
   availableBalance  Decimal  @default(0) @map("available_balance") @db.Decimal(14, 2)
   pendingBalance    Decimal  @default(0) @map("pending_balance") @db.Decimal(14, 2)
+  reservedBalance   Decimal  @default(0) @map("reserved_balance") @db.Decimal(14, 2)
 
   // Konfigurasi Jadwal Otomatis (Auto-Payout)
   autoPayoutEnabled Boolean  @default(false) @map("auto_payout_enabled")
@@ -464,6 +463,7 @@ model WalletTransaction {
   balanceBefore   Decimal        @map("balance_before") @db.Decimal(14, 2)
   balanceAfter    Decimal        @map("balance_after") @db.Decimal(14, 2)
   referenceId     String?        @map("reference_id") // orderNumber atau requestNumber
+  idempotencyKey String? @unique @map("idempotency_key")
   description     String?
   createdAt       DateTime       @default(now()) @map("created_at")
 
@@ -476,6 +476,7 @@ model PayoutRequest {
   wallet             MerchantWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   requestNumber      String         @unique @map("request_number") // PO-202610-0001
   source             String         @default("on_demand") @map("source") // on_demand | scheduled
+  scheduleKey String? @unique @map("schedule_key")
   amount             Decimal        @db.Decimal(14, 2)
 
   // Data Rekening Penerima
@@ -495,4 +496,37 @@ model PayoutRequest {
   updatedAt          DateTime       @updatedAt @map("updated_at")
 
   @@map("payout_requests")
+}
+
+model PaymentAttempt {
+  id Int @id @default(autoincrement())
+  paymentId Int @map("payment_id")
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  partnerReferenceNo String @unique @map("partner_reference_no")
+  status String @default("creating")
+  amount Decimal @db.Decimal(14, 2)
+  response Json?
+  error String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([paymentId, createdAt])
+  @@index([status, updatedAt])
+  @@map("payment_attempts")
+}
+
+model PaymentNotification {
+  id Int @id @default(autoincrement())
+  eventKey String @unique @map("event_key")
+  payload Json
+  headers Json
+  status String @default("pending")
+  attempts Int @default(0)
+  error String?
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt])
+  @@map("payment_notifications")
 }

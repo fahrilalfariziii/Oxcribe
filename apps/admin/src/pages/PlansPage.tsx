@@ -35,8 +35,7 @@ const PLAN_TOGGLE_GROUPS: { title: string; keys: string[] }[] = [
 
 export function PlansPage() {
   const { admin } = usePlatform()
-  // Keputusan: superadmin + support boleh toggle fitur paket.
-  const canEdit = admin?.role === 'superadmin' || admin?.role === 'support'
+  const canEdit = admin?.role === 'superadmin'
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<PlanRow | null>(null)

@@ -2,13 +2,12 @@
 //
 // Konteks (keputusan produk):
 // - Harga menu diasumsikan sudah include pajak/service -> basis fee = SUBTOTAL.
-// - Fee HANYA untuk source self_order dengan metode non-tunai (qris/bank_transfer).
+// - Fee hanya untuk pembayaran non-tunai Self-Order.
 //   Cash & manual order (source pos) selalu 0.
 // - Bearer mengikuti pola taxBearer: customer = fee di atas total pelanggan;
 //   cafe = total pelanggan tetap, fee mengurangi pendapatan owner.
-// - MDR DOKU TIDAK punya API fee aktual -> pakai tabel estimasi:
-//   QRIS 0,7% (inklusif PPN, regulasi BI), VA bank Rp4.000 + PPN 11% = Rp4.440,
-//   cash Rp0. Selalu tampilkan label "estimasi" di UI.
+// - Estimasi MDR QRIS 0,7%; biaya aktual dicatat saat rekonsiliasi settlement.
+//   Tunai dan pembayaran POS manual tidak memakai estimasi biaya gateway.
 
 export type PlatformFeeMode = "percent" | "flat";
 export type FeeBearer = "customer" | "cafe";
@@ -63,12 +62,9 @@ export interface MdrEstimate {
   note: string;
 }
 
-// VA flat Rp4.000 belum termasuk PPN 11% -> biaya efektif Rp4.440.
-const VA_FEE_INCL_VAT = 4440;
-
 /**
  * Estimasi biaya MDR dari grossAmount yang di-charge ke DOKU.
- * QRIS = 0,7% (inklusif PPN). VA bank = flat Rp4.440. Cash/manual = 0.
+ * QRIS = 0,7%. Transfer bank manual dan tunai = 0.
  */
 export function estimateMdrFee(grossAmount: number, paymentMethod: string): MdrEstimate {
   if (paymentMethod === "qris") {
@@ -76,13 +72,6 @@ export function estimateMdrFee(grossAmount: number, paymentMethod: string): MdrE
       fee: round2(grossAmount * 0.007),
       label: "MDR QRIS 0,7%",
       note: "Estimasi tabel DOKU (inklusif PPN). Angka aktual mengikuti settlement.",
-    };
-  }
-  if (paymentMethod === "bank_transfer") {
-    return {
-      fee: grossAmount > 0 ? VA_FEE_INCL_VAT : 0,
-      label: "Biaya VA Rp4.440",
-      note: "Estimasi: Rp4.000 + PPN 11% per transaksi sukses.",
     };
   }
   return { fee: 0, label: "Tanpa MDR", note: "Tunai/manual tidak lewat DOKU." };
@@ -102,5 +91,5 @@ export function buildSettlement(gross: number, platformFee: number, mdrFee: numb
 }
 
 function round2(value: number): number {
-  return Math.round(value * 100) / 100;
+  return Math.round(value);
 }

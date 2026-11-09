@@ -63,7 +63,7 @@ export function calculateOrderTotals(
     taxBearer: business.taxBearer,
     platformFee,
     platformFeeBearer: business.platformFeeBearer,
-    total: round2(total),
+    total: Math.round(total),
   };
 }
 

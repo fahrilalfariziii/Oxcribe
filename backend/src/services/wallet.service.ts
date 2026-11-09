@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../lib/errors";
-
+type Tx = Prisma.TransactionClient;
 export interface PayoutSettingsInput {
   autoPayoutEnabled?: boolean;
   payoutFrequency?: "manual" | "daily" | "weekly" | "monthly";
@@ -9,376 +10,492 @@ export interface PayoutSettingsInput {
   minimumPayout?: number;
   holdMinBalance?: number;
 }
-
 export interface BankAccountInput {
   bankCode: string;
   bankAccount: string;
   accountName: string;
 }
-
-/**
- * Dapatkan atau buat dompet internal untuk sebuah kafe (business).
- */
-export async function getOrCreateWallet(businessId: number) {
-  let wallet = await prisma.merchantWallet.findUnique({
-    where: { businessId },
-    include: {
-      transactions: {
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      },
-      payouts: {
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      },
-    },
-  });
-
-  if (!wallet) {
-    wallet = await prisma.merchantWallet.create({
-      data: {
-        businessId,
-        availableBalance: 0,
-        pendingBalance: 0,
-      },
-      include: {
-        transactions: true,
-        payouts: true,
-      },
-    });
-  }
-
+function money(n: number, zero = false) {
+  if (!Number.isSafeInteger(n) || n < (zero ? 0 : 1))
+    throw AppError.badRequest("Nominal harus rupiah utuh yang valid");
+}
+async function lockWallet(tx: Tx, businessId: number) {
+  await tx.$queryRaw`SELECT id FROM merchant_wallets WHERE business_id = ${businessId} FOR UPDATE`;
+  const wallet = await tx.merchantWallet.findUnique({ where: { businessId } });
+  if (!wallet)
+    throw AppError.notFound("Dompet merchant belum dibuat");
   return wallet;
 }
-
-/**
- * Catat dana masuk dari pesanan non-tunai (QRIS / VA).
- * Nominal yang masuk adalah nominal BERSIH (setelah dikurangi MDR & fee platform).
- * Awalnya masuk ke pendingBalance (menunggu H+1).
- */
+async function lockPayout(tx: Tx, id: number) {
+  await tx.$queryRaw`SELECT id FROM payout_requests WHERE id = ${id} FOR UPDATE`;
+  const params = await tx.payoutRequest.findUnique({ where: { id } });
+  if (!params)
+    throw AppError.notFound("Tiket pencairan tidak ditemukan");
+  return params;
+}
+export async function getOrCreateWallet(businessId: number) {
+  return prisma.merchantWallet.upsert({
+    where: { businessId },
+    create: { businessId },
+    update: {}
+  });
+}
 export async function creditOrderInflow(params: {
   businessId: number;
   netAmount: number;
   orderNumber: string;
+  paymentId: number;
   description?: string;
-}) {
-  const { businessId, netAmount, orderNumber, description } = params;
-  if (netAmount <= 0) return;
-
-  return prisma.$transaction(async (tx) => {
-    let wallet = await tx.merchantWallet.findUnique({ where: { businessId } });
-    if (!wallet) {
-      wallet = await tx.merchantWallet.create({
-        data: { businessId, availableBalance: 0, pendingBalance: 0 },
-      });
-    }
-
-    const before = Number(wallet.pendingBalance);
-    const after = before + netAmount;
-
-    const updated = await tx.merchantWallet.update({
-      where: { id: wallet.id },
-      data: {
-        pendingBalance: { increment: netAmount },
-      },
+}, callerTx?: Tx) {
+  money(params.netAmount, true);
+  const run = async (tx: Tx) => {
+    await tx.merchantWallet.upsert({
+      where: { businessId: params.businessId },
+      create: { businessId: params.businessId },
+      update: {}
     });
-
+    const wallet = await lockWallet(tx, params.businessId);
+    const key = `payment:${params.paymentId}:inflow`;
+    const existing = await tx.walletTransaction.findFirst({
+      where: {
+        walletId: wallet.id,
+        OR: [{ idempotencyKey: key }, {
+            type: "ORDER_INFLOW",
+            referenceId: params.orderNumber
+          }]
+      }
+    });
+    if (existing)
+      return wallet;
     await tx.walletTransaction.create({
       data: {
         walletId: wallet.id,
         type: "ORDER_INFLOW",
-        amount: netAmount,
-        balanceBefore: before,
-        balanceAfter: after,
-        referenceId: orderNumber,
-        description: description || `Pendapatan pesanan #${orderNumber} (Pending H+1)`,
-      },
+        amount: params.netAmount,
+        balanceBefore: wallet.pendingBalance,
+        balanceAfter: Number(wallet.pendingBalance) + params.netAmount,
+        referenceId: params.orderNumber,
+        idempotencyKey: key,
+        description: params.description || "Menunggu rekonsiliasi settlement"
+      }
     });
-
+    return tx.merchantWallet.update({
+      where: { id: wallet.id },
+      data: { pendingBalance: { increment: params.netAmount } }
+    });
+  };
+  return callerTx ? run(callerTx) : prisma.$transaction(run);
+}
+export async function updateWalletBankAccount(businessId: number, params: BankAccountInput) {
+  await getOrCreateWallet(businessId);
+  return prisma.$transaction(async (tx) => {
+    const wallet = await lockWallet(tx, businessId);
+    return tx.merchantWallet.update({
+      where: { id: wallet.id },
+      data: {
+        bankCode: params.bankCode.trim(),
+        bankAccount: params.bankAccount.trim(),
+        accountName: params.accountName.trim(),
+        isBankVerified: false,
+        bankVerifiedAt: null
+      }
+    });
+  });
+}
+export async function verifyWalletBank(params: {
+  businessId: number;
+  adminId: number;
+  bankCode: string;
+  bankAccount: string;
+  accountName: string;
+  evidence: string;
+}) {
+  if (!params.evidence.trim() || !params.accountName.trim())
+    throw AppError.badRequest("Nama dan bukti wajib diisi");
+  return prisma.$transaction(async (tx) => {
+    const wallet = await lockWallet(tx, params.businessId);
+    if (!wallet.bankCode || !wallet.bankAccount || !wallet.accountName)
+      throw AppError.badRequest("Merchant belum mengajukan rekening");
+    if (wallet.bankCode !== params.bankCode || wallet.bankAccount !== params.bankAccount) {
+      throw AppError.conflict("Rekening berubah sejak pemeriksaan; muat ulang dan periksa rekening terbaru");
+    }
+    if (wallet.accountName.trim().toUpperCase() !== params.accountName.trim().toUpperCase())
+      throw AppError.badRequest("Nama rekening tidak cocok dengan pengajuan merchant");
+    const updated = await tx.merchantWallet.update({
+      where: { id: wallet.id },
+      data: {
+        isBankVerified: true,
+        bankVerifiedAt: new Date()
+      }
+    });
+    await tx.platformAuditLog.create({
+      data: {
+        platformAdminId: params.adminId,
+        businessId: params.businessId,
+        action: "wallet_bank_verified",
+        before: {
+          bankCode: wallet.bankCode,
+          bankAccount: wallet.bankAccount,
+          accountName: wallet.accountName
+        },
+        after: {
+          evidence: params.evidence,
+          accountName: params.accountName
+        }
+      }
+    });
     return updated;
   });
 }
-
-/**
- * Pindahkan saldo pending menjadi saldo aktif (H+1 settlement).
- * Dapat dijalankan otomatis oleh cron/scheduler harian.
- */
-export async function settleAllPendingBalances() {
-  const wallets = await prisma.merchantWallet.findMany({
-    where: { pendingBalance: { gt: 0 } },
-  });
-
-  const results = [];
-  for (const wallet of wallets) {
-    const pending = Number(wallet.pendingBalance);
-    if (pending <= 0) continue;
-
-    const res = await prisma.$transaction(async (tx) => {
-      const currentAvailable = Number(wallet.availableBalance);
-      const afterAvailable = currentAvailable + pending;
-
-      const updated = await tx.merchantWallet.update({
-        where: { id: wallet.id },
-        data: {
-          pendingBalance: 0,
-          availableBalance: { increment: pending },
-        },
-      });
-
-      await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          type: "SETTLEMENT",
-          amount: pending,
-          balanceBefore: currentAvailable,
-          balanceAfter: afterAvailable,
-          description: `Settlement harian (Pending -> Saldo Aktif)`,
-        },
-      });
-
-      return updated;
+export async function updateWalletPayoutSettings(businessId: number, params: PayoutSettingsInput) {
+  await getOrCreateWallet(businessId);
+  if (params.minimumPayout !== undefined)
+    money(params.minimumPayout);
+  if (params.holdMinBalance !== undefined)
+    money(params.holdMinBalance, true);
+  return prisma.$transaction(async (tx) => {
+    const wallet = await lockWallet(tx, businessId);
+    const frequency = params.payoutFrequency ?? wallet.payoutFrequency;
+    const day = params.payoutDay !== undefined ? params.payoutDay : wallet.payoutDay;
+    if (frequency === "weekly" && day !== null && (day < 0 || day > 6))
+      throw AppError.badRequest("Hari mingguan harus 0-6");
+    if (frequency === "monthly" && day !== null && (day < 1 || day > 31))
+      throw AppError.badRequest("Tanggal bulanan harus 1-31");
+    return tx.merchantWallet.update({
+      where: { id: wallet.id },
+      data: params
     });
-
-    results.push(res);
-  }
-
-  return results;
-}
-
-/**
- * Simpan rekening bank kafe dan tandai status verifikasinya.
- */
-export async function updateWalletBankAccount(
-  businessId: number,
-  bankData: BankAccountInput & { isVerified: boolean }
-) {
-  const wallet = await getOrCreateWallet(businessId);
-
-  return prisma.merchantWallet.update({
-    where: { id: wallet.id },
-    data: {
-      bankCode: bankData.bankCode,
-      bankAccount: bankData.bankAccount,
-      accountName: bankData.accountName,
-      isBankVerified: bankData.isVerified,
-      bankVerifiedAt: bankData.isVerified ? new Date() : null,
-    },
   });
 }
-
-/**
- * Perbarui pengaturan jadwal pencairan otomatis (Auto-Payout).
- */
-export async function updateWalletPayoutSettings(
-  businessId: number,
-  settings: PayoutSettingsInput
-) {
-  const wallet = await getOrCreateWallet(businessId);
-
-  return prisma.merchantWallet.update({
-    where: { id: wallet.id },
-    data: {
-      ...(settings.autoPayoutEnabled !== undefined && { autoPayoutEnabled: settings.autoPayoutEnabled }),
-      ...(settings.payoutFrequency && { payoutFrequency: settings.payoutFrequency }),
-      ...(settings.payoutDay !== undefined && { payoutDay: settings.payoutDay }),
-      ...(settings.minimumPayout !== undefined && { minimumPayout: settings.minimumPayout }),
-      ...(settings.holdMinBalance !== undefined && { holdMinBalance: settings.holdMinBalance }),
-    },
-  });
-}
-
-/**
- * Buat nomor request penarikan yang unik (PO-YYYYMM-XXXX).
- */
-async function generatePayoutNumber(): Promise<string> {
-  const dateStr = new Date().toISOString().slice(0, 7).replace("-", ""); // 202610
-  const prefix = `PO-${dateStr}-`;
-
-  const lastPayout = await prisma.payoutRequest.findFirst({
-    where: { requestNumber: { startsWith: prefix } },
-    orderBy: { id: "desc" },
-    select: { requestNumber: true },
-  });
-
-  let seq = 1;
-  if (lastPayout) {
-    const parts = lastPayout.requestNumber.split("-");
-    const lastSeq = parseInt(parts[2], 10);
-    if (!isNaN(lastSeq)) seq = lastSeq + 1;
-  }
-
-  return `${prefix}${seq.toString().padStart(4, "0")}`;
-}
-
-/**
- * Owner mengajukan penarikan dana (On-Demand atau Terjadwal).
- */
 export async function requestPayout(params: {
   businessId: number;
   amount: number;
   source?: "on_demand" | "scheduled";
+  scheduleKey?: string;
 }) {
-  const { businessId, amount, source = "on_demand" } = params;
-  if (amount <= 0) {
-    throw AppError.badRequest("Nominal penarikan harus lebih dari 0");
-  }
-
+  money(params.amount);
   return prisma.$transaction(async (tx) => {
-    const wallet = await tx.merchantWallet.findUnique({ where: { businessId } });
-    if (!wallet) throw AppError.notFound("Dompet merchant belum dibuat");
-
-    if (!wallet.isBankVerified || !wallet.bankAccount || !wallet.bankCode || !wallet.accountName) {
-      throw AppError.badRequest("Rekening bank belum didaftarkan atau belum terverifikasi");
+    const wallet = await lockWallet(tx, params.businessId);
+    if (params.scheduleKey) {
+      const existing = await tx.payoutRequest.findUnique({ where: { scheduleKey: params.scheduleKey } });
+      if (existing)
+        return existing;
     }
-
-    const minPayout = Number(wallet.minimumPayout);
-    if (amount < minPayout) {
-      throw AppError.badRequest(`Nominal penarikan minimal Rp ${minPayout.toLocaleString("id-ID")}`);
-    }
-
-    const holdMin = Number(wallet.holdMinBalance);
-    const available = Number(wallet.availableBalance);
-    const maxWithdrawable = available - holdMin;
-
-    if (amount > maxWithdrawable) {
-      throw AppError.badRequest(
-        `Saldo yang dapat ditarik tidak mencukupi. Tersedia: Rp ${available.toLocaleString("id-ID")} (Termasuk cadangan kas Rp ${holdMin.toLocaleString("id-ID")})`
-      );
-    }
-
-    const balanceBefore = available;
-    const balanceAfter = available - amount;
-
-    // 1. Potong saldo aktif
-    await tx.merchantWallet.update({
-      where: { id: wallet.id },
-      data: {
-        availableBalance: { decrement: amount },
-      },
-    });
-
-    const requestNumber = await generatePayoutNumber();
-
-    // 2. Buat tiket PayoutRequest
+    if (!wallet.isBankVerified || !wallet.bankAccount || !wallet.bankCode || !wallet.accountName)
+      throw AppError.badRequest("Rekening bank belum terverifikasi");
+    const before = Number(wallet.availableBalance);
+    if (params.amount < Number(wallet.minimumPayout))
+      throw AppError.badRequest("Nominal di bawah minimum pencairan");
+    if (params.amount > before - Number(wallet.holdMinBalance))
+      throw AppError.badRequest("Saldo yang dapat ditarik tidak mencukupi");
+    const requestNumber = `PO-${randomUUID()}`;
     const payout = await tx.payoutRequest.create({
       data: {
         walletId: wallet.id,
         requestNumber,
-        source,
-        amount,
+        source: params.source ?? "on_demand",
+        scheduleKey: params.scheduleKey,
+        amount: params.amount,
         bankCode: wallet.bankCode,
         bankAccount: wallet.bankAccount,
         accountName: wallet.accountName,
-        status: "pending",
-      },
+        status: "pending"
+      }
     });
-
-    // 3. Catat di ledger transaksi
+    await tx.merchantWallet.update({
+      where: { id: wallet.id },
+      data: {
+        availableBalance: { decrement: params.amount },
+        reservedBalance: { increment: params.amount }
+      }
+    });
     await tx.walletTransaction.create({
       data: {
         walletId: wallet.id,
         type: "PAYOUT_DEDUCTION",
-        amount,
-        balanceBefore,
-        balanceAfter,
+        amount: params.amount,
+        balanceBefore: before,
+        balanceAfter: before - params.amount,
         referenceId: requestNumber,
-        description: `Penarikan dana #${requestNumber} (${source === "scheduled" ? "Jadwal Otomatis" : "Tarik Manual"})`,
-      },
+        idempotencyKey: `payout:${payout.id}:reserve`,
+        description: "Dana ditahan untuk pencairan manual"
+      }
     });
-
     return payout;
   });
 }
-
-/**
- * Platform Admin menyelesaikan transfer (m-Banking selesai).
- */
+export async function processPayout(params: {
+  payoutId: number;
+  adminId: number;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const payout = await lockPayout(tx, params.payoutId);
+    if (payout.status !== "pending")
+      throw AppError.badRequest("Hanya pencairan pending dapat diproses");
+    return tx.payoutRequest.update({
+      where: { id: payout.id },
+      data: {
+        status: "processing",
+        processedByAdminId: params.adminId
+      }
+    });
+  });
+}
 export async function completePayout(params: {
   payoutId: number;
   adminId: number;
   bankRefNumber: string;
   proofImageUrl?: string;
 }) {
-  const { payoutId, adminId, bankRefNumber, proofImageUrl } = params;
-
-  const payout = await prisma.payoutRequest.findUnique({
-    where: { id: payoutId },
-  });
-
-  if (!payout) throw AppError.notFound("Tiket pencairan tidak ditemukan");
-  if (payout.status === "completed") {
-    throw AppError.badRequest("Pencairan ini sudah selesai diproses");
-  }
-
-  return prisma.payoutRequest.update({
-    where: { id: payoutId },
-    data: {
-      status: "completed",
-      bankRefNumber,
-      proofImageUrl,
-      processedByAdminId: adminId,
-      processedAt: new Date(),
-    },
+  if (!params.bankRefNumber.trim() || !params.proofImageUrl?.trim())
+    throw AppError.badRequest("Referensi bank dan bukti transfer wajib diisi");
+  return prisma.$transaction(async (tx) => {
+    const payout = await lockPayout(tx, params.payoutId);
+    if (payout.status !== "processing")
+      throw AppError.badRequest("Pencairan harus dalam status processing");
+    await tx.$queryRaw`SELECT id FROM merchant_wallets WHERE id = ${payout.walletId} FOR UPDATE`;
+    const changed = await tx.merchantWallet.updateMany({
+      where: {
+        id: payout.walletId,
+        reservedBalance: { gte: payout.amount }
+      },
+      data: { reservedBalance: { decrement: payout.amount } }
+    });
+    if (changed.count !== 1)
+      throw AppError.conflict("Saldo tertahan tidak cukup; rekonsiliasi historis diperlukan");
+    return tx.payoutRequest.update({
+      where: { id: payout.id },
+      data: {
+        status: "completed",
+        bankRefNumber: params.bankRefNumber,
+        proofImageUrl: params.proofImageUrl,
+        processedByAdminId: params.adminId,
+        processedAt: new Date()
+      }
+    });
   });
 }
-
-/**
- * Platform Admin menolak penarikan dan mengembalikan saldo ke dompet merchant.
- */
 export async function rejectPayout(params: {
   payoutId: number;
   adminId: number;
   reason: string;
 }) {
-  const { payoutId, adminId, reason } = params;
-
   return prisma.$transaction(async (tx) => {
-    const payout = await tx.payoutRequest.findUnique({
-      where: { id: payoutId },
-      include: { wallet: true },
-    });
-
-    if (!payout) throw AppError.notFound("Tiket pencairan tidak ditemukan");
-    if (payout.status !== "pending" && payout.status !== "processing") {
-      throw AppError.badRequest("Pencairan ini tidak dapat dibatalkan/ditolak");
-    }
-
-    const currentBalance = Number(payout.wallet.availableBalance);
-    const refundAmount = Number(payout.amount);
-    const newBalance = currentBalance + refundAmount;
-
-    // 1. Kembalikan saldo ke dompet kafe
-    await tx.merchantWallet.update({
-      where: { id: payout.walletId },
-      data: {
-        availableBalance: { increment: refundAmount },
+    const payout = await lockPayout(tx, params.payoutId);
+    if (!["pending", "processing"].includes(payout.status))
+      throw AppError.badRequest("Pencairan tidak dapat ditolak");
+    await tx.$queryRaw`SELECT id FROM merchant_wallets WHERE id = ${payout.walletId} FOR UPDATE`;
+    const wallet = await tx.merchantWallet.findUniqueOrThrow({ where: { id: payout.walletId } }), amount = Number(payout.amount);
+    const changed = await tx.merchantWallet.updateMany({
+      where: {
+        id: wallet.id,
+        reservedBalance: { gte: amount }
       },
+      data: {
+        reservedBalance: { decrement: amount },
+        availableBalance: { increment: amount }
+      }
     });
-
-    // 2. Catat mutasi REFUND di ledger
+    if (changed.count !== 1)
+      throw AppError.conflict("Saldo tertahan tidak cukup; rekonsiliasi historis diperlukan");
     await tx.walletTransaction.create({
       data: {
-        walletId: payout.walletId,
+        walletId: wallet.id,
         type: "REFUND",
-        amount: refundAmount,
-        balanceBefore: currentBalance,
-        balanceAfter: newBalance,
+        amount,
+        balanceBefore: wallet.availableBalance,
+        balanceAfter: Number(wallet.availableBalance) + amount,
         referenceId: payout.requestNumber,
-        description: `Pengembalian dana penarikan #${payout.requestNumber}: ${reason}`,
-      },
+        idempotencyKey: `payout:${payout.id}:reject`,
+        description: params.reason
+      }
     });
-
-    // 3. Update status tiket payout
-    const updated = await tx.payoutRequest.update({
-      where: { id: payoutId },
+    return tx.payoutRequest.update({
+      where: { id: payout.id },
       data: {
         status: "rejected",
-        rejectionReason: reason,
-        processedByAdminId: adminId,
-        processedAt: new Date(),
-      },
+        rejectionReason: params.reason,
+        processedByAdminId: params.adminId,
+        processedAt: new Date()
+      }
     });
-
-    return updated;
+  });
+}
+export const unsettledPaymentWhere = {
+  gateway: "doku",
+  method: "qris",
+  status: "paid",
+  settledAt: null,
+  reviewReason: null,
+  order: { source: "self_order" }
+} as const;
+export async function settlePayments(params: {
+  reference: string;
+  payments: {
+    paymentId: number;
+    gatewayFee: number;
+  }[];
+}) {
+  if (!params.reference.trim() || !params.payments.length)
+    throw AppError.badRequest("Referensi settlement dan pembayaran wajib diisi");
+  if (new Set(params.payments.map(i => i.paymentId)).size !== params.payments.length)
+    throw AppError.badRequest("Pembayaran duplikat");
+  return prisma.$transaction(async (tx) => {
+    const results = [];
+    // Payment processing also locks payment before wallet. Keep that order here.
+    for (const item of [...params.payments].sort((a, b) => a.paymentId - b.paymentId))
+      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${item.paymentId} FOR UPDATE`;
+    const candidates = await tx.payment.findMany({
+      where: { id: { in: params.payments.map(i => i.paymentId) } },
+      select: { businessId: true }
+    });
+    for (const businessId of [...new Set(candidates.map(i => i.businessId))].sort((a, b) => a - b))
+      await lockWallet(tx, businessId);
+    for (const item of [...params.payments].sort((a, b) => a.paymentId - b.paymentId)) {
+      money(item.gatewayFee, true);
+      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${item.paymentId} FOR UPDATE`;
+      const payment = await tx.payment.findUnique({
+        where: { id: item.paymentId },
+        include: { order: true }
+      });
+      if (
+        !payment || payment.gateway !== "doku" || payment.method !== "qris" ||
+        payment.status !== "paid" || payment.order.source !== "self_order" ||
+        payment.settledAt || payment.reviewReason
+      )
+        throw AppError.badRequest("Pembayaran tidak memenuhi syarat settlement atau sudah direkonsiliasi");
+      const wallet = await lockWallet(tx, payment.businessId);
+      const inflow = await tx.walletTransaction.findFirst({
+        where: {
+          walletId: wallet.id,
+          type: "ORDER_INFLOW",
+          OR: [{ idempotencyKey: `payment:${payment.id}:inflow` }, { referenceId: payment.order.orderNumber }]
+        }
+      });
+      if (!inflow)
+        throw AppError.conflict("Ledger pendapatan tidak ditemukan; rekonsiliasi historis diperlukan");
+      const estimated = Number(inflow.amount) - Number(payment.refundedAmount);
+      const actual = Number(payment.amount) - Number(payment.order.platformFee) -
+        item.gatewayFee - Number(payment.refundedAmount);
+      if (estimated < 0 || actual < 0 || Number(wallet.pendingBalance) < estimated)
+        throw AppError.badRequest("Biaya atau saldo settlement tidak valid");
+      await tx.merchantWallet.update({
+        where: { id: wallet.id },
+        data: {
+          pendingBalance: { decrement: estimated },
+          availableBalance: { increment: actual }
+        }
+      });
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: "SETTLEMENT_PENDING",
+          amount: -estimated,
+          balanceBefore: wallet.pendingBalance,
+          balanceAfter: Number(wallet.pendingBalance) - estimated,
+          referenceId: params.reference,
+          idempotencyKey: `payment:${payment.id}:settle-pending`,
+          description: `Rekonsiliasi pembayaran #${payment.id}`
+        }
+      });
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: "SETTLEMENT",
+          amount: actual,
+          balanceBefore: wallet.availableBalance,
+          balanceAfter: Number(wallet.availableBalance) + actual,
+          referenceId: params.reference,
+          idempotencyKey: `payment:${payment.id}:settle`,
+          description: `Biaya gateway aktual Rp ${item.gatewayFee}`
+        }
+      });
+      results.push(await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          settledAt: new Date(),
+          settlementReference: params.reference,
+          gatewayFeeActual: item.gatewayFee,
+          settledNet: actual
+        }
+      }));
+    }
+    return results;
+  });
+}
+export async function refundPayment(params: {
+  paymentId: number;
+  amount: number;
+  reference: string;
+  proofImageUrl: string;
+  reason: string;
+  adminId: number;
+}) {
+  money(params.amount);
+  return prisma.$transaction(async (tx) => {
+    const lookup = await tx.payment.findUnique({
+      where: { id: params.paymentId },
+      select: { businessId: true }
+    });
+    if (!lookup)
+      throw AppError.notFound("Pembayaran tidak ditemukan");
+    await tx.$queryRaw`SELECT id FROM payments WHERE id = ${params.paymentId} FOR UPDATE`;
+    const wallet = await lockWallet(tx, lookup.businessId);
+    const payment = await tx.payment.findUnique({
+      where: { id: params.paymentId },
+      include: { order: true }
+    });
+    if (!payment || payment.gateway !== "doku" || payment.method !== "qris" || payment.status !== "paid" || payment.order.source !== "self_order")
+      throw AppError.badRequest("Pembayaran tidak memenuhi syarat refund");
+    const metadata = (Array.isArray(payment.refundMetadata) ? payment.refundMetadata : []) as Record<string, Prisma.JsonValue>[];
+    if (metadata.some(e => e.reference === params.reference))
+      throw AppError.conflict("Referensi refund telah digunakan");
+    if (Number(payment.refundedAmount) + params.amount > Number(payment.amount))
+      throw AppError.badRequest("Refund melebihi jumlah pembayaran");
+    const inflow = await tx.walletTransaction.findFirst({
+      where: {
+        walletId: wallet.id,
+        type: "ORDER_INFLOW",
+        OR: [{ idempotencyKey: `payment:${payment.id}:inflow` }, { referenceId: payment.order.orderNumber }]
+      }
+    });
+    if (!inflow)
+      throw AppError.conflict("Ledger pendapatan tidak ditemukan");
+    const field = payment.settledAt ? "availableBalance" : "pendingBalance";
+    const afterSettlementRefunds = metadata.reduce((sum, e) => sum + (e.beforeSettlement === false ? Number(e.amount) : 0), 0);
+    const remaining = payment.settledAt ? Number(payment.settledNet) - afterSettlementRefunds : Number(inflow.amount) - Number(payment.refundedAmount);
+    if (params.amount > remaining || Number(wallet[field]) < params.amount)
+      throw AppError.badRequest("Saldo merchant tidak cukup untuk refund; rekonsiliasi diperlukan");
+    await tx.merchantWallet.update({
+      where: { id: wallet.id },
+      data: { [field]: { decrement: params.amount } }
+    });
+    await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        type: "PAYMENT_REFUND",
+        amount: -params.amount,
+        balanceBefore: wallet[field],
+        balanceAfter: Number(wallet[field]) - params.amount,
+        referenceId: params.reference,
+        idempotencyKey: `payment:${payment.id}:refund:${params.reference}`,
+        description: params.reason
+      }
+    });
+    return tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        refundedAmount: { increment: params.amount },
+        refundMetadata: [...metadata, {
+            amount: params.amount,
+            reference: params.reference,
+            proofImageUrl: params.proofImageUrl,
+            reason: params.reason,
+            adminId: params.adminId,
+            beforeSettlement: !payment.settledAt,
+            createdAt: new Date().toISOString()
+          }] as Prisma.InputJsonValue
+      }
+    });
   });
 }

@@ -7,62 +7,45 @@ import {IconBack, IconMinus, IconPlus,} from "../../../shared/components/icons";
 import { useCafe } from "../../../mock/store";
 import { normalizeTheme } from "../../../shared/types";
 import { isFeatureOn } from "../../../shared/lib/features";
+import { selfOrderPaymentMethods } from '../../../shared/lib/payment-policy'
 
 interface Props {
   tableNumber: string;
   cart: CartItem[];
   customerName: string;
   payMethod: PaymentMethod;
-  selectedBank: string;
-  onSelectBank: (bank: string) => void;
   onName: (v: string) => void;
   onPayMethod: (v: PaymentMethod) => void;
   onBack: () => void;
   onUpdateQty: (id: string, delta: number) => void;
   onCheckout: () => void;
+  checkoutPending: boolean;
 }
 
 const ALL_METHODS: { id: PaymentMethod; label: string; sub: string }[] = [
   { id: "cash", label: "Tunai", sub: "Bayar di Kasir" },
   { id: "qris", label: "QRIS", sub: "Dana, ShopeePay, GoPay, dll" },
-  { id: "bank_transfer", label: "Transfer Bank", sub: "BCA, Mandiri, BNI, BRI" },
 ];
-
-const BANKS = [
-  { id: 'bca', label: 'BCA' },
-  { id: 'mandiri', label: 'Mandiri' },
-  { id: 'bni', label: 'BNI' },
-  { id: 'bri', label: 'BRI' },
-] as const
 
 export function CartScreen({
   tableNumber,
   cart,
   customerName,
   payMethod,
-  selectedBank,
-  onSelectBank,
   onName,
   onPayMethod,
   onBack,
   onUpdateQty,
   onCheckout,
+  checkoutPending,
 }: Props) {
   const { business } = useCafe()
   const theme = normalizeTheme(business.theme)
   const [error, setError] = useState(false);
-  const availableMethods = ALL_METHODS.filter((m) => (business.enabledPaymentMethods ?? ['cash','qris']).includes(m.id))
-  const bankCfg = (business.paymentSettings as Record<string, { allowedBanks?: string[]; bank?: string }>)?.bank_transfer
-  // Saring ke 4 bank yang didukung DOKU SNAP — nilai basi (permata/cimb/dll)
-  // dari pengaturan lama tidak boleh ditawarkan ke pelanggan.
-  const SUPPORTED_BANK_IDS = ['bca', 'mandiri', 'bni', 'bri']
-  const rawAllowed: string[] = bankCfg?.allowedBanks && bankCfg.allowedBanks.length > 0 ? bankCfg.allowedBanks : (bankCfg?.bank ? [bankCfg.bank] : SUPPORTED_BANK_IDS)
-  const allowedBanks: string[] = rawAllowed.filter((b) => SUPPORTED_BANK_IDS.includes(b))
-  const effectiveAllowed = allowedBanks.length > 0 ? allowedBanks : SUPPORTED_BANK_IDS
-  const visibleBanks = BANKS.filter((b) => effectiveAllowed.includes(b.id))
+  const availableMethods = ALL_METHODS.filter((m) => selfOrderPaymentMethods(business.enabledPaymentMethods).some((method) => method === m.id))
   useEffect(() => {
-    if (payMethod === 'bank_transfer' && !effectiveAllowed.includes(selectedBank) && visibleBanks.length > 0) onSelectBank(visibleBanks[0].id)
-  }, [effectiveAllowed.join(','), payMethod])
+    if (!availableMethods.some((m) => m.id === payMethod) && availableMethods[0]) onPayMethod(availableMethods[0].id)
+  }, [availableMethods.map((m) => m.id).join(','), payMethod, onPayMethod])
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
   const taxFeatureOn = isFeatureOn(business, 'taxFees')
   // Service charge ikut flag granular (admin) + toggle owner.
@@ -98,7 +81,7 @@ export function CartScreen({
         <span className="font-display text-xl font-bold">Keranjang</span>
         <span className="text-sm">Table {tableNumber}</span>
       </header>
-      <div className="flex-1 overflow-y-auto px-5 py-6 pb-48 scrollbar-hide">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 scrollbar-hide">
         <div className="flex flex-col gap-8">
           <section>
             <h2 className="font-display mb-3 text-xl font-semibold">
@@ -117,6 +100,7 @@ export function CartScreen({
                   onName(e.target.value);
                 }}
                 placeholder=" "
+                aria-label="Nama pemesan"
                 required
               />
               <span className="absolute left-4 top-2 text-xs text-soil">
@@ -178,16 +162,17 @@ export function CartScreen({
                   <div className="flex flex-col items-end justify-between shrink-0">
                     {/* Tombol Hapus (Kanan Atas) */}
                     <button
-                      className="text-xs text-soil hover:text-red-500 transition-colors"
+                      className="min-h-11 px-2 text-xs text-soil hover:text-red-700 transition-colors"
                       onClick={() => onUpdateQty(ci.cartId, -ci.quantity)}
                     >
                       Hapus
                     </button>
 
                     {/* Stepper Jumlah (Kanan Bawah) */}
-                    <div className="flex h-8 w-fit items-center rounded-full" style={{ background: `${theme.accent}33` }}>
+                    <div className="flex h-11 w-fit items-center rounded-full" style={{ background: `${theme.accent}33` }}>
                       <button
-                        className="flex size-8 items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label={`Kurangi ${ci.name}`}
+                        className="flex size-11 items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
                         onClick={() => onUpdateQty(ci.cartId, -1)}
                         disabled={ci.quantity <= 1} // Mencegah terhapus jika sisa 1
                       >
@@ -197,7 +182,8 @@ export function CartScreen({
                         {ci.quantity}
                       </span>
                       <button
-                        className="flex size-8 items-center justify-center"
+                        aria-label={`Tambah ${ci.name}`}
+                        className="flex size-11 items-center justify-center"
                         onClick={() => onUpdateQty(ci.cartId, 1)}
                       >
                         <IconPlus color="#1A2816" />
@@ -208,7 +194,7 @@ export function CartScreen({
               )
             })}
 
-            <button onClick={onBack} className="py-2 text-left text-base text-ink font-medium">
+            <button onClick={onBack} className="min-h-11 py-2 text-left text-base text-ink font-medium">
               + Tambah Item Lain
             </button>
           </section>
@@ -223,6 +209,7 @@ export function CartScreen({
                 return (
                 <button
                   key={m.id}
+                  aria-pressed={payMethod === m.id}
                   onClick={() => onPayMethod(m.id)}
                   style={payMethod === m.id ? { borderColor: theme.accent } : undefined}
                   className={`flex items-center justify-between rounded-[8px] border bg-white p-[13px] text-left ${
@@ -244,24 +231,6 @@ export function CartScreen({
                 </button>
               )})}
             </div>
-            {payMethod === 'bank_transfer' && (
-              <div className="rounded-[12px] border border-sand bg-cream/40 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-stone mb-2">Pilih Bank Tujuan</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {visibleBanks.map((b) => (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => onSelectBank(b.id)}
-                      style={selectedBank === b.id ? { borderColor: theme.primary, background: theme.primary, color: '#fff' } : undefined}
-                      className={`rounded-lg border py-2 text-xs font-bold uppercase ${selectedBank === b.id ? '' : 'border-clay bg-white text-stone'}`}
-                    >
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </section>
           <section className="rounded-[12px] bg-[#f3f3f3] p-5">
             <h2 className="font-display mb-2 text-xl font-semibold">
@@ -303,7 +272,7 @@ export function CartScreen({
           </section>
         </div>
       </div>
-      <div className="fixed bottom-20 left-0 right-0 z-10 mx-auto flex w-full max-w-md items-center justify-between rounded-t-[12px] border-t border-clay/20 bg-white px-4 pb-4 pt-[17px]">
+      <div aria-busy={checkoutPending} className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-clay/20 bg-white px-4 py-3">
       <div>
         <p className="text-xs text-soil">Total Tagihan</p>
         <p className="font-display text-xl font-bold" style={{ color: theme.accent }}>
@@ -313,10 +282,10 @@ export function CartScreen({
       <Button
         className="h-12 rounded-full px-8 disabled:opacity-50"
         style={{ background: theme.primary }}
-        disabled={cart.length === 0 || !customerName.trim() || availableMethods.length === 0}
+        disabled={checkoutPending || cart.length === 0 || !customerName.trim() || !availableMethods.some((m) => m.id === payMethod)}
         onClick={handleCheckout}
       >
-        Pesan Sekarang
+        {checkoutPending ? 'Mengirim pesanan…' : 'Pesan sekarang'}
       </Button>
     </div>
     </div>

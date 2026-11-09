@@ -1,187 +1,88 @@
-# Runbook Operasional DOKU (Sub-Account V2 + SNAP Direct API)
+# Operasional pembayaran DOKU Oxcribe
 
-Dokumen ini adalah panduan operasional dana untuk tim Oxcribe. Isinya digabung dari
-[dokumentasi resmi DOKU](https://docs.doku.com/wallet-as-a-service/sub-account/collect-and-route)
-dan **aliran yang sudah terverifikasi live di sandbox** (inquiry, payout, settlement,
-split rule — semua response code di bawah benar-benar diobservasi, bukan karangan).
+Panduan ini menjelaskan alur aplikasi saat ini. Self-Order menerima **tunai dan QRIS**. QRIS diterima terpusat pada akun merchant DOKU; setiap tenant mempunyai ledger internal Oxcribe. POS tetap mendukung pencatatan pembayaran manual, termasuk transfer bank. Pencatatan POS manual tidak menambah saldo wallet platform.
 
-> **Aturan #1:** dana `DOKU_MERCHANT_PENDING_IDR` **tidak bisa** dicairkan/diutak-atik —
-> ia pindah sendiri ke `DOKU_MERCHANT_IDR` saat settlement. Semua payout hanya dari IDR.
-> **Aturan #2:** jangan `TRUNCATE`/seed-ulang environment yang sudah transaksi ke DOKU.
+Aktivasi QRIS, tarif dan waktu settlement merchant harus dikonfirmasi melalui kontrak serta laporan DOKU yang berlaku. Perubahan kode dan pengujian lokal bukan bukti transaksi produksi. Lihat [Produksi-Pembayaran.md](Produksi-Pembayaran.md) untuk persiapan deployment, backup dan verifikasi live.
 
-## 1. Peta akun (satu sub-account per tenant)
+## Pembayaran dan saldo
 
-| Akun                    | Kode                      | Bisa dicairkan? | Isi dari |
-| ----------------------- | ------------------------- | --------------- | -------- |
-| IDR                     | `DOKU_MERCHANT_IDR`       | **Ya**          | Settlement + top-up BRI VA |
-| Pending IDR             | `DOKU_MERCHANT_PENDING_IDR` | **Tidak** (system-managed) | Charge Checkout/Direct API (QRIS/VA) |
-| Poin                    | `DOKU_MERCHANT_POINT`     | Tidak (non-tunai) | Top-up poin / debit |
-| System Point (profil merchant saja) | `DOKU_SYSTEM_POINT` | Tidak | Saldo negatif = total poin beredar (normal!) |
+Percobaan QRIS disimpan sebelum request gateway. Referensi pembayaran digunakan untuk webhook, polling dan rekonsiliasi. Request ulang untuk percobaan yang belum jelas hasilnya tidak boleh dianggap sebagai izin menerbitkan tagihan baru. Timeout atau pembayaran terlambat perlu ditelusuri melalui referensi yang tersimpan.
 
-Setiap akun punya `available` (bisa dipakai) dan `reserved` (ditahan). **Reserved ≠ Pending**:
-reserved adalah hold *di dalam* satu akun, Pending adalah *akun terpisah*.
+Webhook pembayaran memakai `POST /api/public/doku/notification`; signature wajib valid. Inbox notifikasi dan worker menangani retry, sedangkan polling status memakai transisi pembayaran yang sama. Order paid dan kredit ledger pending dicatat atomik serta idempoten.
 
-```
-Bayar QRIS/VA Direct          Top-up BRI VA bawaan
-      │                                │
-      ▼                                ▼
-DOKU_MERCHANT_PENDING_IDR      DOKU_MERCHANT_IDR (real-time,
-(held sampai settlement)        langsung bisa dicairkan)
-      │ settlement H+1
-      │ (potong fee PG → terapkan split rule ke NET)
-      ▼
-DOKU_MERCHANT_IDR ──Transfer Inquiry + Payment (BI_FAST)──▶ bank owner
+- `pendingBalance`: estimasi pendapatan bersih, belum tersedia untuk payout.
+- `availableBalance`: pendapatan yang sudah direkonsiliasi terhadap settlement nyata.
+- `reservedBalance`: saldo yang ditahan untuk tiket payout pending atau processing.
+
+Jam server, restart, atau asumsi H+1 tidak memindahkan pending ke available. Scheduler hanya membuat tiket pencairan sesuai preferensi merchant dan tanggal Asia/Jakarta, paling banyak satu tiket terjadwal per bisnis per tanggal.
+
+## Rekonsiliasi settlement
+
+Superadmin mencocokkan pembayaran dengan statement settlement merchant dan biaya gateway aktual. Daftar kandidat berasal dari `GET /api/platform/payouts/unsettled`, dengan filter opsional `businessId`. Pembayaran harus paid, QRIS DOKU, Self-Order, belum settled dan tidak memiliki penanda review.
+
+`POST /api/platform/payouts/settlements` (superadmin):
+
+```json
+{
+  "reference": "STATEMENT-MERCHANT-2026-11-06",
+  "payments": [{ "paymentId": 123, "gatewayFee": 700 }]
+}
 ```
 
-## 2. Setup awal per tenant
+Nominal dalam rupiah utuh. Setiap pembayaran memerlukan biaya aktual, termasuk nilai nol bila memang sesuai statement. Satu batch atomik: sistem mengurangi estimasi pending dan menambah net aktual ke available, menyimpan referensi, biaya aktual, waktu settlement dan ledger. Pembayaran yang sama tidak dapat di-settle dua kali. Ketidakcocokan ledger atau saldo menyebabkan penolakan dan perlu investigasi.
 
-### 2.1. Kredensial (`.env` backend, mode Sandbox)
+## Rekening merchant
 
-```
-DOKU_CLIENT_ID, DOKU_SECRET_KEY, DOKU_PRIVATE_KEY (\n literal),
-DOKU_MERCHANT_ID, DOKU_TERMINAL_ID, DOKU_POSTAL_CODE=10110,
-DOKU_IS_PRODUCTION=false
-DOKU_PARTNER_SERVICE_ID (+ per-bank bila beda) + DOKU_VA_*_CUSTOMER_PREFIX
-DOKU_NOTIFICATION_URL (ngrok saat lokal), DOKU_MAIN_IDR_ACCOUNT
+Owner mengajukan rekening lewat `POST /api/wallet/bank-account`:
+
+```json
+{ "bankCode": "014", "bankAccount": "1234567890", "accountName": "NAMA PEMILIK" }
 ```
 
-Tanpa kredensial: order tetap tercatat tapi **tanpa** QR/VA (frontend menampilkan retry
-yang jujur — bukan error palsu).
+Pengajuan selalu berstatus belum terverifikasi; perubahan rekening menghapus verifikasi sebelumnya. Tidak ada hasil inquiry simulasi yang dianggap valid. Admin melihat pengajuan melalui `GET /api/platform/wallets` dan memeriksa bukti kepemilikan rekening secara manual.
 
-### 2.2. Daftarkan sub-account (superadmin, idempoten)
+`POST /api/platform/wallets/:businessId/verify-bank` (superadmin):
 
-```bash
-PTOKEN="<token superadmin>"
-curl -s -X POST http://localhost:4000/api/platform/tenants/1/doku-subaccount/register \
-  -H "Authorization: Bearer $PTOKEN" -H "Content-Type: application/json" -d '{}'
-# -> { status: ok, profileId: "SAC-xxxx-...", subAccountStatus: "active" }
+```json
+{ "accountName": "NAMA PEMILIK", "evidence": "Referensi dokumen dan hasil pemeriksaan rekening" }
 ```
 
-Tersimpan: `dokuProfileId` + `dokuSubAccounts[]` (POINT, IDR `2010…`, Pending `2030…`) +
-VA BRI statis. Batasan DOKU: email ≤ 25 karakter, nama hanya huruf/angka/spasi/`.'-`
-(maks 100) — selain itu `4000601`.
+Nama harus cocok dengan pengajuan merchant. Bukti dan identitas admin disimpan dalam audit transaksi verifikasi. Payout memerlukan rekening terverifikasi.
 
-### 2.3. Nomor VA BRI bawaan
+## Payout manual
 
-```
-VA = 1392495 + <nomor akun IDR>   (contoh: 2010195754 → 13924952010195754)
-```
+Owner membaca saldo/ledger melalui `GET /api/wallet`, mengatur preferensi tiket terjadwal melalui `PUT /api/wallet/settings`, dan mengajukan payout melalui `POST /api/wallet/payout` dengan `{ "amount": 50000 }`. Jadwal tersebut membuat tiket; admin tetap melakukan transfer manual. Penarikan harus memenuhi minimum dan menyisakan hold minimum merchant. Nominal ditahan dari available ke reserved saat tiket dibuat.
 
-Permanen, bisa dipakai ulang. Nama tampil di m-banking: `Merchant Balance + [Nama Tenant]`.
+| Endpoint platform | Izin | Tindakan |
+| --- | --- | --- |
+| `GET /api/platform/payouts` | superadmin/support | Daftar tiket, rekening snapshot dan rekening pengajuan terbaru |
+| `POST /api/platform/payouts/:id/process` | superadmin | pending ke processing |
+| `POST /api/platform/payouts/:id/complete` | superadmin | processing ke completed; wajib `bankRefNumber` dan `proofImageUrl` URL |
+| `POST /api/platform/payouts/:id/reject` | superadmin | Tolak pending/processing dengan `reason`; kembalikan dana tepat sekali |
 
-## 3. Top-up sandbox (simulator)
+Admin memastikan transfer bank benar-benar selesai sebelum menandai completed. Penolakan tiket yang sudah ditransfer dapat menggandakan kewajiban merchant; periksa bukti bank terlebih dahulu. Tiket rejected tidak dapat diselesaikan. Support dapat membaca data keuangan tetapi tidak dapat menulis settlement, verifikasi, refund, payout, tarif platform atau paket.
 
-Di sandbox tidak ada bank asli — bayar VA lewat simulator DOKU:
+## Refund manual
 
-1. Buka `https://sandbox.doku.com/integration/simulator/` → pilih **BRI Virtual Account**.
-2. Masukkan VA dari §2.3 → **Inquiry** → cek nama → confirm bayar.
-3. Saldo IDR bertambah **real-time** + webhook top-up ke callback.
+Refund dicatat setelah operator menangani pengembalian dana di luar aplikasi. Endpoint ini **tidak mengirim uang**:
 
-**Jebakan #1 (paling sering):** memakai nomor akun **Pending (`2030…`)** → simulator menjawab
-`Invalid Bill/Virtual Account` dan terlihat "rusak". Selalu pakai akun **IDR (`2010…`)**.
+`POST /api/platform/payments/:id/refund` (superadmin):
 
-## 4. Settlement & split rule (otomatis H+1, bukan API)
-
-- Charge QRIS/VA Direct mendarat di **Pending**, belum ter-split — penjual cek saldo pun
-  bagiannya belum terlihat. Itu normal.
-- Saat settlement (hari kerja, kisaran 12:00–14:00 WIB, H+1 tergantung channel):
-  1. DOKU potong fee PG,
-  2. split rule dihitung dari **NET (setelah fee), bukan gross**,
-  3. tiap tujuan terima `SPLIT_TRANSACTION` ke **IDR** — baru bisa dicairkan.
-- Di sandbox, settlement **tidak** terjadi same-day (terobservasi: dana Pending mengendap).
-  Lihat tanggal settlement per transaksi di Dashboard DOKU → Reports → Reconciled Transactions.
-
-### Membuat split rule (superadmin)
-
-```bash
-curl -s -X POST http://localhost:4000/api/platform/tenants/1/doku-subaccount/split-rule \
-  -H "Authorization: Bearer $PTOKEN" -H "Content-Type: application/json" \
-  -d '{"rules":[{"type":"PERCENTAGE","value":5,"accountNumber":"2010195754"}]}'
-# -> { status: ok, splitRuleId: "split_rule-..." } (tersimpan + audit doku_split_rule_created)
+```json
+{
+  "amount": 10000,
+  "reference": "REFUND-BANK-123",
+  "proofImageUrl": "https://storage.example/refund-123.png",
+  "reason": "Koreksi transaksi pelanggan"
+}
 ```
 
-Aturan main:
-- `type`: `PERCENTAGE` (persen dari net) atau `FLAT` (+ `currency: IDR`).
-- `accountNumber`: nomor akun DOKU tujuan fee. **Untuk uji, pakai akun IDR tenant sendiri**
-  (risiko nol). Untuk produksi, pakai akun fee platform — **jangan asal nomor**.
-- **Dua silent failure DOKU** (API tidak error!): `split_rule_id` invalid → dana masuk tanpa
-  split; `account.id` invalid → transaksi nyangkut, urus manual via ops DOKU. Backend
-  menangkalnya dengan validasi `balance-inquiry` sebelum routing charge
-  (`resolveValidatedTenantRoute`, cache 1 jam).
-- Charge yang membawa rule: otomatis — setiap charge tenant ber-`splitRuleId` menyertakan
-  `additionalInfo.account = { id: profileId, split_rule_id }`.
+Sistem mengurangi pending sebelum settlement atau available setelah settlement, menambah total refund pembayaran dan menyimpan ledger serta bukti. Referensi yang sama tidak dicatat ulang. Refund tidak boleh melampaui nominal pembayaran, sisa pendapatan bersih merchant atau saldo tersedia pada bucket tersebut. Pengembalian gross yang membutuhkan pendanaan biaya platform/gateway, atau saldo merchant yang sudah ditarik, harus direkonsiliasi secara terpisah sebelum dicatat.
 
-## 5. Verifikasi rekening settlement (superadmin, tanpa gerak dana)
+## Riwayat dan operasi
 
-```bash
-curl -s -X PATCH http://localhost:4000/api/platform/tenants/1/settlement \
-  -H "Authorization: Bearer $PTOKEN" -H "Content-Type: application/json" \
-  -d '{"bankCode":"CENAIDJA","bankAccount":"92482374832742","bankName":"VIGINA VANARIKA"}'
-# -> { settlement: {..., status: "VERIFIED" | "MISMATCH" | "UNVERIFIED" }, dokuBeneficiaryName }
-```
-
-- Backend inquiry Rp10.000 (validasi nama saja) lalu bandingkan nama DOKU vs `bankName`.
-- `VERIFIED` = cocok; `MISMATCH` = rekening milik orang lain (perilaku benar — koreksi
-  `bankName`, jangan abaikan); `UNVERIFIED` = inquiry gagal karena saldo 0 — verifikasi
-  ulang setelah top-up. Kode bank = SWIFT/BIC (`CENAIDJA/BRINIDJA/BNINIDJA/BMRIIDJA`).
-
-## 6. Payout / pencairan (superadmin)
-
-Hanya dari **IDR**. Endpoint `POST /api/platform/tenants/:id/doku-subaccount/transfer`
-(superadmin; tanpa dry-run — langsung eksekusi):
-
-```bash
-curl -s -X POST http://localhost:4000/api/platform/tenants/1/doku-subaccount/transfer \
-  -H "Authorization: Bearer $PTOKEN" -H "Content-Type: application/json" \
-  -d '{"amount":10000,"beneficiaryBankCode":"CENAIDJA","beneficiaryAccountNumber":"92482374832742"}'
-```
-
-Backend menjalankan berurutan (terverifikasi live: inquiry `2004200` → payment `2004300`,
-ref `DK…`, audit `doku_transfer_initiated`, saldo IDR berkurang):
-
-1. **Transfer Inquiry** — validasi tujuan → `referenceNo` + `beneficiaryAccountName` resmi.
-2. **Transfer Payment** — wajib echo kembali: `partnerReferenceNo`, `referenceNo`, `type`,
-   `channel` (default `BI_FAST`), `fromAccount`, `beneficiaryBankCode/AccountNumber/**AccountName**`,
-   `amount`. Hanya `referenceNo` saja **ditolak** (`4004302`).
-3. `fromAccount` default = akun **IDR** (bukan `accounts[0]` yang isinya POINT).
-4. Di UI admin: Tab Pembayaran tenant → input nominal → **Cairkan ke rekening**.
-5. Terobservasi: payout Rp10.000 mengurangi IDR Rp12.500 (≈ Rp2.500 fee BI_FAST) — sisakan
-   margin saat mencairkan habis.
-
-**Dana historis pra-sub-account** (campur di akun utama) pakai endpoint terpisah
-`.../transfer-from-main` dengan `dryRun=true` (cek saja) atau `confirm=true` + `tenantNote`
-wajib (audit `doku_main_payout`).
-
-## 7. Webhook (2 URL, jangan tertukar)
-
-| URL | Event | Daftar |
-| --- | ----- | ------ |
-| `/api/public/doku/notification` | Payment (QRIS/VA lunas/gagal) | Otomatis di kode |
-| `/api/public/doku/sub-account/notification` | Register/top-up/transfer/debit | Diregistrasi **terpisah** di setup merchant |
-
-Keduanya verifikasi `X-SIGNATURE` simetris, fail-closed (signature salah = tolak + audit),
-dan wajib `200 {"responseCode":"2000000"}`. Tanpa URL publik (ngrok), pakai polling
-`GET /api/public/orders/by-client/:clientOrderId/status` (auto-sync paid).
-
-## 8. Tabel error lapangan (terobservasi)
-
-| Kode / Gejala | Arti | Aksi |
-| ------------- | ---- | ---- |
-| `4034202/4034215` inquiry/transfer | Saldo sumber kurang (atau salah akun POINT) | Cek `balance-inquiry`; top-up dulu; pastikan `fromAccount` IDR |
-| `4004302 Invalid Mandatory Field amount/name` | `transfer-payment` tidak echo detail | Lihat §6 — lengkapi field wajib |
-| `4000601` register | Nama/email format ditolak DOKU | Sanitasi nama; email ≤ 25 char |
-| `4032715` create VA | Prefix customerNo salah per bank | Samakan prefix di `.env` dengan tabel dashboard DOKU |
-| Simulator `Invalid Bill` | VA dari akun Pending | Pakai VA dari akun IDR (§2.3) |
-| Settlement `UNVERIFIED` | Inquiry gagal (saldo 0) | Top-up lalu verifikasi ulang |
-| Settlement `MISMATCH` | Nama ≠ pemilik rekening | Koreksi `bankName`, bukan bypass |
-| Charge sukses tapi dana "hilang" | `account.id`/`split_rule_id` invalid (silent!) | Cek routing tervalidasi + audit; hubungi ops DOKU |
-
-## 9. Monitoring
-
-- `GET /api/platform/tenants/:id/doku-subaccount` — status + saldo live + splitRuleId.
-- `POST /sub-account/v2.0/transaction-history-list` (via API DOKU) — rekonsiliasi;
-  ingat `balance = Σ baris status != VOID`.
-- Dashboard DOKU → Reports → Reconciled Transactions — tanggal settlement per transaksi.
-- Audit log backend: `doku_subaccount_registered`, `doku_split_rule_created`,
-  `doku_settlement_verified`, `doku_transfer_initiated`, `doku_main_payout`,
-  `doku_subaccount_event`.
+- Migrasi historis tidak boleh dihapus atau ditulis ulang. Migrasi baru mempertahankan jejak eksperimen lama sebagai arsip.
+- Saldo dan transaksi legacy harus diperiksa eksplisit terhadap laporan gateway serta mutasi bank. Jangan menganggap estimasi pending lama masih merupakan dana belum settled; penanda review memblokir settlement biasa.
+- Jangan seed database produksi atau database berisi transaksi nyata. Jangan reset tabel, sequence maupun volume database untuk memperbaiki status pembayaran.
+- Tidak ada pembuatan subaccount, split rule, VA Self-Order maupun transfer DOKU otomatis dalam alur ini. Endpoint eksperimen tersebut sudah dihapus.
+- Simpan statement, bukti bank dan referensi refund/payout agar setiap perubahan dana dapat ditelusuri. Pantau notifikasi gagal, pembayaran review, saldo negatif, payout processing lama dan ketidaksesuaian ledger.

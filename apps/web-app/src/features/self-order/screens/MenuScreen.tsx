@@ -8,25 +8,26 @@ import {
   IconPlus,
   IconSearch,
 } from "../../../shared/components/icons";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   tableNumber: string;
   products: Product[];
   cart: CartItem[];
+  addedItem: { sequence: number; name: string; quantity: number } | null;
+  visible: boolean;
   onSelectItem: (item: Product) => void;
-  onUpdateQty: (cartId: string, delta: number) => void;
   onGoCart: () => void;
-  onGoOrder: () => void;
 }
 
 export function MenuScreen({
   tableNumber,
   products,
   cart,
+  addedItem,
+  visible,
   onSelectItem,
   onGoCart,
-  // onGoOrder,
 }: Props) {
   const { business, categories } = useCafe();
   const theme = normalizeTheme(business.theme);
@@ -34,17 +35,104 @@ export function MenuScreen({
   const titleFont = theme.titleFont === 'sans' ? 'font-sans' : theme.titleFont === 'serif' ? 'font-serif' : 'font-display';
   const pillRadius = theme.radius === 'full' ? 'rounded-full' : 'rounded-[12px]';
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("Semua");
-  const cats = ["Semua", ...categories.map((c) => c.name)];
+  const [category, setCategory] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const categoryListRef = useRef<HTMLDivElement>(null);
+  const categoryScrollFrame = useRef(0);
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
 
-  const filtered = products.filter((m) => {
-    const catName = categories.find((c) => c.id === m.categoryId)?.name;
-    const matchCat = category === "Semua" || catName === category;
-    const matchSearch = m.name.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
-  });
+  const query = search.trim().toLowerCase();
+  const filtered = products.filter((item) => `${item.name} ${item.description ?? ''}`.toLowerCase().includes(query));
+  const categoryIds = new Set(categories.map(({ id }) => id));
+  const sections = [
+    ...categories.map(({ id, name }) => ({ id: `category-${id}`, name, items: filtered.filter((item) => item.categoryId === id) })),
+    { id: 'other', name: 'Menu lainnya', items: filtered.filter((item) => !categoryIds.has(item.categoryId)) },
+  ].filter(({ items }) => items.length > 0);
+  const activeCategory = sections.some(({ id }) => id === category) ? category : sections[0]?.id;
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const bar = barRef.current;
+    if (!visible || !scroller || !bar) return;
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const headings = Array.from(scroller.querySelectorAll<HTMLElement>('[data-menu-section]'));
+        const edge = scroller.getBoundingClientRect().top + bar.offsetHeight + 12;
+        const atEnd = scroller.scrollTop > 0 && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop < 2;
+        let current = headings[0];
+        for (const heading of headings) {
+          if (heading.getBoundingClientRect().top <= edge || atEnd) current = heading;
+          else break;
+        }
+        setCategory(current?.dataset.menuSection ?? null);
+      });
+    };
+    const resize = new ResizeObserver(update);
+    resize.observe(scroller);
+    resize.observe(bar);
+    scroller.addEventListener('scroll', update, { passive: true });
+    update();
+    return () => {
+      scroller.removeEventListener('scroll', update);
+      resize.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [visible, query, products, categories]);
+
+  useEffect(() => {
+    const list = categoryListRef.current;
+    const button = list?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!visible || !list || !button) return;
+    const listRect = list.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    if (buttonRect.left < listRect.left || buttonRect.right > listRect.right) {
+      list.scrollLeft += buttonRect.left - listRect.left - (listRect.width - buttonRect.width) / 2;
+    }
+  }, [activeCategory, visible]);
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!visible || !scroller) return;
+    const stopScroll = () => cancelAnimationFrame(categoryScrollFrame.current);
+    scroller.addEventListener('wheel', stopScroll, { passive: true });
+    scroller.addEventListener('touchstart', stopScroll, { passive: true });
+    scroller.addEventListener('pointerdown', stopScroll, { passive: true });
+    scroller.addEventListener('keydown', stopScroll);
+    return () => {
+      stopScroll();
+      scroller.removeEventListener('wheel', stopScroll);
+      scroller.removeEventListener('touchstart', stopScroll);
+      scroller.removeEventListener('pointerdown', stopScroll);
+      scroller.removeEventListener('keydown', stopScroll);
+    };
+  }, [visible, query]);
+
+  function scrollToCategory(id: string) {
+    const scroller = scrollRef.current;
+    const target = Array.from(scroller?.querySelectorAll<HTMLElement>('[data-menu-section]') ?? [])
+      .find((section) => section.dataset.menuSection === id);
+    if (!scroller || !target) return;
+    cancelAnimationFrame(categoryScrollFrame.current);
+    const start = scroller.scrollTop;
+    const offset = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - (barRef.current?.offsetHeight ?? 0) - 8;
+    const end = Math.max(0, Math.min(start + offset, scroller.scrollHeight - scroller.clientHeight));
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || Math.abs(end - start) < 1) {
+      scroller.scrollTop = end;
+      return;
+    }
+    const startedAt = performance.now();
+    function animate(now: number) {
+      const progress = Math.min((now - startedAt) / 360, 1);
+      scroller!.scrollTop = start + (end - start) * (1 - (1 - progress) ** 3);
+      if (progress < 1) categoryScrollFrame.current = requestAnimationFrame(animate);
+    }
+    categoryScrollFrame.current = requestAnimationFrame(animate);
+  }
 
   function qtyFor(id: string) {
     return cart
@@ -53,7 +141,8 @@ export function MenuScreen({
   }
 
   return (
-    <div className="flex h-full flex-col" style={{ background: theme.pageBg }}>
+    <div className="flex h-full min-h-0 flex-col" style={{ background: theme.pageBg }}>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-hide">
       <div className="relative shrink-0">
         <img
           alt=""
@@ -92,33 +181,39 @@ export function MenuScreen({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-hide">
-        <div className="flex flex-col gap-6 px-5 pb-40 pt-4">
-          <div className="relative">
+        <div className="relative mx-4 my-4">
             <div className="absolute left-4 top-1/2 -translate-y-1/2">
               <IconSearch />
             </div>
             <input
               className="h-14 w-full rounded-full bg-[#eee] pl-12 pr-4 text-base text-soil shadow-inner outline-none"
               placeholder="Cari minuman atau makanan..."
+              aria-label="Cari menu"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); scrollRef.current?.scrollTo({ top: 0 }) }}
             />
           </div>
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-            {cats.map((cat) => (
-              <button key={cat} onClick={() => setCategory(cat)}
-                style={category === cat ? { background: theme.primary, color: '#fff' } : undefined}
-                className={`h-10 shrink-0 px-6 text-sm font-semibold ${pillRadius} ${
-                  category === cat
+          <div ref={barRef} hidden={sections.length === 0} className="sticky top-0 z-10 border-b border-clay/20 py-2" style={{ background: theme.pageBg }}>
+          <div ref={categoryListRef} role="navigation" aria-label="Kategori menu" className="flex gap-2 overflow-x-auto px-4 scrollbar-hide">
+            {sections.map(({ id, name }) => (
+              <button type="button" key={id} onClick={() => scrollToCategory(id)} aria-current={activeCategory === id ? 'true' : undefined}
+                style={activeCategory === id ? { background: theme.primary, color: '#fff' } : undefined}
+                className={`min-h-11 shrink-0 px-4 text-sm font-semibold ${pillRadius} ${
+                  activeCategory === id
                     ? ""
                     : "border border-clay/30 bg-[#eee] text-soil"
-                }`}>{cat}
+                }`}>{name}
               </button>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            {filtered.map((item) => {
+          </div>
+          <div className="space-y-6 px-4 pb-5 pt-3">
+          {sections.length === 0 && <p role="status" className="py-8 text-center text-sm text-soil">{query ? 'Tidak ada menu yang cocok. Coba kata lain.' : 'Menu belum tersedia.'}</p>}
+          {sections.map(({ id, name, items }) => (
+          <section key={id} data-menu-section={id} aria-labelledby={`heading-${id}`}>
+          <h2 id={`heading-${id}`} className={`mb-3 text-lg font-bold ${titleFont}`}>{name}</h2>
+          <div className="grid grid-cols-1 gap-3 min-[340px]:grid-cols-2 sm:gap-4">
+            {items.map((item) => {
               const qty = qtyFor(item.id);
               return (
                 <div
@@ -132,6 +227,8 @@ export function MenuScreen({
                     {item.imageUrl ? (
                       <img
                         alt={item.name}
+                        loading="lazy"
+                        decoding="async"
                         src={item.imageUrl}
                         className={`absolute inset-0 h-full w-full object-cover ${
                           !item.isAvailable ? "saturate-0" : ""
@@ -167,13 +264,14 @@ export function MenuScreen({
                         {item.description}
                       </p>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-1">
                       <span className="text-sm font-semibold">
                         {formatRupiah(item.price)}
                       </span>
                       {item.isAvailable && (
                         <button
-                          className="flex size-8 items-center justify-center rounded-full transition-transform active:scale-95"
+                          type="button"
+                          className="flex size-11 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95"
                           style={{ background: theme.primary }}
                           onClick={() =>  onSelectItem(item)}
                           aria-label={`Tambah ${item.name} ke keranjang`}
@@ -187,15 +285,19 @@ export function MenuScreen({
               );
             })}
           </div>
+          </section>
+          ))}
         </div>
       </div>
 
       {cartCount > 0 && (
-        <div className="fixed bottom-20 left-0 right-0 z-10 mx-auto w-full max-w-md px-5">
+        <div className="relative z-10 shrink-0 px-4 pb-2 pt-1">
+          {addedItem && <span key={addedItem.sequence} aria-hidden="true" className="self-order-add-badge pointer-events-none absolute bottom-full right-5 rounded-lg bg-ink px-3 py-1.5 text-sm font-bold text-white">+{addedItem.quantity} item</span>}
           <button
+            type="button"
             onClick={onGoCart}
             style={{ background: theme.primary }}
-            className="flex h-[72px] w-full items-center justify-between rounded-[12px] px-4 text-white shadow-xl transition-transform active:scale-[0.98]"
+            className="flex min-h-14 w-full items-center justify-between gap-2 rounded-[12px] px-3 py-2 text-white shadow-lg transition-transform active:scale-[0.98]"
           >
             <div className="flex items-center gap-3">
               <div className="relative flex size-10 items-center justify-center rounded-full bg-white/20">
@@ -214,10 +316,11 @@ export function MenuScreen({
                 </p>
               </div>
             </div>
-            <span className="text-sm font-semibold">Lihat Keranjang →</span>
+            <span className="shrink-0 rounded-lg bg-white px-3 py-2 text-sm font-bold text-ink">Checkout</span>
           </button>
         </div>
       )}
+      <p role="status" aria-atomic="true" className="sr-only">{addedItem ? `${addedItem.quantity} ${addedItem.name} ditambahkan. ${cartCount} item di keranjang.` : ''}</p>
     </div>
   );
 }

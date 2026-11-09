@@ -18,12 +18,13 @@ export function BottomNav({ currentScreen, hasActiveOrder, onNavigate }: BottomN
   const isOrder = currentScreen === 'cart' || currentScreen === 'status' || currentScreen === 'history'
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 mx-auto flex h-20 w-full max-w-md items-center justify-around border-t border-clay/20 bg-white/95 px-6 backdrop-blur-md">
+    <nav aria-label="Navigasi Self-Order" className="flex shrink-0 items-center justify-around border-t border-clay/20 bg-white px-6 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1">
       {/* Tombol Menu */}
       <button
         type="button"
+        aria-current={isMenu ? 'page' : undefined}
         onClick={() => onNavigate('menu')}
-        className="relative flex w-20 flex-col items-center justify-center gap-1 py-1.5 text-xs transition-colors"
+        className="relative flex min-h-11 w-20 flex-col items-center justify-center gap-1 py-1.5 text-xs transition-colors"
       >
         {/* Background Pill (Active Indicator) */}
         {isMenu && (
@@ -50,8 +51,9 @@ export function BottomNav({ currentScreen, hasActiveOrder, onNavigate }: BottomN
       {/* Tombol Pesanan */}
       <button
         type="button"
+        aria-current={isOrder ? 'page' : undefined}
         onClick={() => onNavigate(hasActiveOrder ? 'status' : 'cart')}
-        className="relative flex w-20 flex-col items-center justify-center gap-1 py-1.5 text-xs transition-colors"
+        className="relative flex min-h-11 w-20 flex-col items-center justify-center gap-1 py-1.5 text-xs transition-colors"
       >
         {/* Background Pill (Active Indicator) */}
         {isOrder && (

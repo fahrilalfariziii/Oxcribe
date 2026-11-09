@@ -1,5 +1,4 @@
 // Tipe bersama halaman Detail Tenant — cerminan respons GET /api/platform/tenants/:id
-// dan GET .../doku-subaccount. Jangan ubah bentuknya tanpa mengikuti backend.
 
 export type TenantDetail = {
   business: {
@@ -35,14 +34,6 @@ export type TenantDetail = {
     platformAdmin: { name: string; email: string } | null
   }[]
 }
-
-export type SubInfo = {
-  profileId: string | null
-  subAccountStatus: string
-  balance: unknown
-  settlement: Record<string, string | null>
-  subAccounts: unknown
-} | null
 
 export type TenantTabKey = 'overview' | 'config' | 'payment' | 'audit'
 

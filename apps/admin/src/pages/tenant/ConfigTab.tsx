@@ -6,6 +6,7 @@ type FeeMode = 'percent' | 'flat'
 type Props = {
   overrides: Record<string, boolean>
   canManageFeatures: boolean
+  canManageFee: boolean
   onToggleFlag: (key: string, value: boolean) => void
   onRemoveFlag: (key: string) => void
   onResetAll: () => void
@@ -152,7 +153,7 @@ export function ConfigTab(props: Props) {
       <Card>
         <CardTitle>Platform fee self-order (non-tunai)</CardTitle>
         <p className="mt-1 text-xs text-slate-500">
-          Per kafe (hasil kerja sama). Hanya untuk self-order QRIS/transfer — cash & manual tidak kena.
+          Per kafe (hasil kerja sama). Hanya untuk self-order QRIS; cash & manual tidak kena.
           Siapa yang menanggung adalah keputusan owner (di halaman Pajak & Biaya).
           Perubahan tercatat di audit log; order lama tidak berubah.
         </p>
@@ -165,24 +166,24 @@ export function ConfigTab(props: Props) {
               type="checkbox"
               checked={props.feeEnabled}
               onChange={(e) => props.setFeeEnabled(e.target.checked)}
-              disabled={!canManageFeatures}
+              disabled={!props.canManageFee}
               className="h-4 w-4 accent-slate-900"
             />
             Fee aktif
           </label>
           <Field label="Mode">
-            <Select value={props.feeMode} onChange={(e) => props.setFeeMode(e.target.value as FeeMode)} className="h-10" disabled={!canManageFeatures}>
+            <Select value={props.feeMode} onChange={(e) => props.setFeeMode(e.target.value as FeeMode)} className="h-10" disabled={!props.canManageFee}>
               <option value="percent">Persen dari subtotal</option>
               <option value="flat">Flat per transaksi</option>
             </Select>
           </Field>
           {props.feeMode === 'percent' ? (
             <Field label="Persen (%)">
-              <Input value={props.feePercent} onChange={(e) => props.setFeePercent(e.target.value)} inputMode="decimal" placeholder="5" disabled={!canManageFeatures} />
+              <Input value={props.feePercent} onChange={(e) => props.setFeePercent(e.target.value)} inputMode="decimal" placeholder="5" disabled={!props.canManageFee} />
             </Field>
           ) : (
             <Field label="Flat (Rp)">
-              <Input value={props.feeFlat} onChange={(e) => props.setFeeFlat(e.target.value)} inputMode="numeric" placeholder="1000" disabled={!canManageFeatures} />
+              <Input value={props.feeFlat} onChange={(e) => props.setFeeFlat(e.target.value)} inputMode="numeric" placeholder="1000" disabled={!props.canManageFee} />
             </Field>
           )}
         </div>
@@ -191,7 +192,7 @@ export function ConfigTab(props: Props) {
           <p className="mt-1">Bila ditanggung pelanggan: total {rp(grossCustomer)} · bersih QRIS (est.) {rp(netQrisCustomer)}</p>
           <p>Bila ditanggung kafe: total {rp(exSubtotal)} · bersih QRIS (est.) {rp(netQrisCafe)}</p>
         </div>
-        {canManageFeatures && (
+        {props.canManageFee && (
           <Button size="sm" className="mt-3 h-10" onClick={props.onSaveFee}>
             Simpan platform fee
           </Button>

@@ -2,25 +2,25 @@ import { useEffect, useState } from 'react'
 import { useCafe } from '../../../../mock/store'
 import { Button, Field, TextInput } from '../../../../shared/components/ui'
 import type { PaymentMethod, PaymentSettings } from '../../../../shared/types'
+import { selfOrderPaymentMethods } from '../../../../shared/lib/payment-policy'
 
 type MethodMeta = { id: PaymentMethod; label: string; sub: string; icon: string }
 
 const METHODS: MethodMeta[] = [
   { id: 'cash', label: 'Tunai (Cash)', sub: 'Manual — bayar di kasir', icon: 'payments' },
   { id: 'qris', label: 'QRIS', sub: 'DOKU dinamis — QR tampil otomatis', icon: 'qr_code' },
-  { id: 'bank_transfer', label: 'Transfer Bank (VA)', sub: 'BCA, Mandiri, BNI, BRI via DOKU', icon: 'account_balance' },
 ]
 
 export function PaymentSettingsPage() {
   const { business, saveBusinessSettings } = useCafe()
-  const [enabled, setEnabled] = useState<PaymentMethod[]>((business.enabledPaymentMethods as PaymentMethod[]) ?? ['cash', 'qris'])
+  const [enabled, setEnabled] = useState<PaymentMethod[]>(selfOrderPaymentMethods(business.enabledPaymentMethods))
   const [settings, setSettings] = useState<Record<string, PaymentSettings>>((business.paymentSettings as Record<string, PaymentSettings>) ?? {})
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setEnabled((business.enabledPaymentMethods as PaymentMethod[]) ?? ['cash', 'qris'])
+    setEnabled(selfOrderPaymentMethods(business.enabledPaymentMethods))
     setSettings((business.paymentSettings as Record<string, PaymentSettings>) ?? {})
   }, [business.enabledPaymentMethods, business.paymentSettings])
 
@@ -42,23 +42,11 @@ export function PaymentSettingsPage() {
     e.preventDefault()
     if (enabled.length === 0) { setError('Minimal 1 metode pembayaran harus aktif'); return }
     if (saving) return
-    // Non-cash selalu via DOKU SNAP global — strip field lama agar data bersih.
-    const SUPPORTED_BANKS = ['bca', 'mandiri', 'bni', 'bri']
+    // Rekening transfer manual POS tetap disimpan; Self-Order hanya tunai/QRIS.
     const cleanSettings: Record<string, PaymentSettings> = {}
     for (const [id, cfg] of Object.entries(settings)) {
       const { gateway: _g, instruction: _i, acquirer: _a, ...rest } = cfg
-      const cleaned: PaymentSettings = { ...rest, gateway: id === 'cash' ? 'manual' : 'doku' }
-      if (id === 'bank_transfer') {
-        type Bank4 = 'bca' | 'mandiri' | 'bni' | 'bri'
-        const kept = (cleaned.allowedBanks ?? []).filter((b): b is Bank4 => SUPPORTED_BANKS.includes(b))
-        if (kept.length > 0) {
-          cleaned.allowedBanks = kept
-          if (!cleaned.bank || !kept.includes(cleaned.bank)) cleaned.bank = kept[0]
-        } else {
-          delete cleaned.allowedBanks
-          cleaned.bank = (SUPPORTED_BANKS.includes(cleaned.bank ?? '') ? cleaned.bank : 'bca') as Bank4
-        }
-      }
+      const cleaned: PaymentSettings = { ...rest, gateway: id === 'qris' ? 'doku' : 'manual' }
       cleanSettings[id] = cleaned
     }
     const payload: Record<string, unknown> = { enabledPaymentMethods: enabled, paymentSettings: cleanSettings }
@@ -78,7 +66,7 @@ export function PaymentSettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-[32px] font-semibold tracking-tight">Pembayaran</h1>
-        <p className="text-stone">Pilih metode yang tampil di Self-Order. QRIS/VA via DOKU tampil otomatis + auto-verifikasi webhook.</p>
+        <p className="text-stone">Pilih tunai atau QRIS untuk Self-Order. Status QRIS dikonfirmasi server dari pembayaran gateway.</p>
       </div>
 
       <form onSubmit={handleSave} className="max-w-2xl rounded-[16px] border border-[#c4c7c7] bg-white p-6 shadow-2xs space-y-5">
@@ -86,13 +74,13 @@ export function PaymentSettingsPage() {
           <h2 className="font-bold text-black">Sumber DOKU (Global)</h2>
           <p className="mt-1 text-xs text-stone">
             Semua tenant memakai akun DOKU Oxcribe (SNAP Direct API).
-            {business.dokuConfigured === false && ' Kredensial belum dikonfigurasi — order non-tunai akan tercatat tanpa QR/VA sampai admin mengisi env.'}
+            {business.dokuConfigured === false && ' QRIS belum tersedia. Hubungi admin sebelum mengaktifkan pembayaran QRIS.'}
           </p>
         </div>
 
         <div className="border-b border-sand pb-3 pt-2">
           <h2 className="font-bold text-black">Metode Pembayaran</h2>
-          <p className="text-xs text-stone">Aktifkan minimal 1. QRIS/VA selalu via DOKU.</p>
+          <p className="text-xs text-stone">Aktifkan minimal 1. QRIS menggunakan akun merchant pusat; tunai dibayar di kasir.</p>
         </div>
 
         {saved && <div className="flex items-center gap-2 rounded-lg bg-[#b8cda9]/30 p-3 text-xs font-semibold text-sage border border-sage/40"><span className="material-symbols-outlined text-[18px]">check_circle</span><span>Pengaturan pembayaran berhasil disimpan!</span></div>}
@@ -126,27 +114,6 @@ export function PaymentSettingsPage() {
                       </>
                     )}
 
-                    {m.id==='bank_transfer' && (
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-stone mb-2"></p>
-                        <div className="flex flex-wrap gap-2">
-                          {(['bca','mandiri','bni','bri'] as const).map((b)=>{
-                            const list = (cfg.allowedBanks as string[] | undefined) ?? (cfg.bank ? [cfg.bank as string] : ['bca'])
-                            const active = list.includes(b)
-                            return (
-                              <button key={b} type="button" onClick={()=>{
-                                const cur = (cfg.allowedBanks as string[] | undefined) ?? (cfg.bank ? [cfg.bank as string] : [])
-                                const next = active ? cur.filter((x)=>x!==b) : [...cur, b]
-                                if (next.length===0) return
-                                updateSetting(m.id, { allowedBanks: next as ('bca'|'mandiri'|'bni'|'bri')[], bank: next[0] as 'bca'|'mandiri'|'bni'|'bri' })
-                              }} className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${active?'border-black bg-black text-white':'border-clay bg-white text-stone'}`}>{b.toUpperCase()}</button>
-                            )
-                          })}
-                        </div>
-                        <p className="mt-2 text-[11px] text-stone">Semua bank memakai Virtual Account DOKU (nomor VA unik per transaksi).</p>
-                        <p className="mt-2 text-[11px] text-stone">Rekening kafe diatur di Profil Bisnis → tab Rekening.</p>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

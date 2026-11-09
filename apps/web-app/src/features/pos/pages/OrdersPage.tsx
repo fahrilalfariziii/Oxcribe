@@ -46,7 +46,7 @@ function VaBlock({ order }: { order: Order }) {
 }
 
 export function OrdersPage() {
-  const { orders, updateOrderStatus, markPaid, business, refreshOrdersFromBackend } = useCafe()
+  const { orders, updateOrderStatus, business, refreshOrdersFromBackend } = useCafe()
   const [activeTab, setActiveTab] = useState<OrderStatus>('diterima')
   const [selectedOrderForReceipt, setSelectedOrderForReceipt] = useState<Order | null>(null)
   const [newAlert, setNewAlert] = useState<{ orderNumber: string; table: string; customer: string } | null>(null)
@@ -134,8 +134,9 @@ export function OrdersPage() {
       const beId = api.toBackendId(order.id)
       await api.updateOrderStatus(beId || order.id, status)
       updateOrderStatus(order.id, status)
-    } catch {
-      updateOrderStatus(order.id, status)
+    } catch (error) {
+      if (!import.meta.env.PROD) updateOrderStatus(order.id, status)
+      else setPayError(error instanceof Error ? error.message : 'Status belum dikonfirmasi server.')
     }
   }
   const handleCancel = async (order: Order) => {
@@ -148,8 +149,9 @@ export function OrdersPage() {
       setCancelNotice(`Pesanan #${order.orderNumber} dibatalkan.`)
       window.setTimeout(() => setCancelNotice(null), 4000)
       refreshOrdersFromBackend().catch(() => {})
-    } catch {
-      updateOrderStatus(order.id, 'batal')
+    } catch (error) {
+      if (!import.meta.env.PROD) updateOrderStatus(order.id, 'batal')
+      else setPayError(error instanceof Error ? error.message : 'Pembatalan belum dikonfirmasi server.')
     }
   }
   const handlePaid = async (order: Order) => {
@@ -162,7 +164,7 @@ export function OrdersPage() {
     try {
       const beId = api.toBackendId(order.id)
       await api.markOrderPaid(beId || order.id)
-      markPaid(order.id)
+      await refreshOrdersFromBackend()
     } catch (e) {
       setPayError(e instanceof Error ? e.message : 'Gagal menandai lunas')
     } finally {
